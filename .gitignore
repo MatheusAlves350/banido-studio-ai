@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambientes Virtuais e Segredos
+venv/
+.venv/
+env/
+.env
+.env.local
+
+# Dados locais de instância, banco e logs
+data/
+*.db
+*.db-shm
+*.db-wal
+database/
+settings.json
+obs_backups/
+logs/
+temp/
+*.log
+
+# Arquivos de Mídia e Modelos
+models/
+mosaicos/
+mosaics/
+Cortes/
+obs_recordings/
+vozes_amigos/
+*.mkv
+*.mp4
+*.wav
+*.srt
+*.npy
+*.jpg
+!docs/*.jpg
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
