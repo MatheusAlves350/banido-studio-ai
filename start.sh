@@ -5,15 +5,24 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$APP_DIR"
 export PYTHONPATH="$APP_DIR"
 
-if [ -f ".env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source ".env"
-    set +a
-fi
+# Lê apenas BANIDO_HOST e BANIDO_PORT de forma segura (sem executar source no .env)
+read_env_var() {
+    local key="$1"
+    local default_val="$2"
+    local val=""
+    if [ -f ".env" ]; then
+        val="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" .env | tail -n 1 | cut -d '=' -f 2- || true)"
+        val="$(printf '%s' "$val" | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+    fi
+    if [ -n "$val" ]; then
+        printf '%s' "$val"
+    else
+        printf '%s' "$default_val"
+    fi
+}
 
-HOST="${BANIDO_HOST:-127.0.0.1}"
-PORT="${BANIDO_PORT:-8765}"
+HOST="${BANIDO_HOST:-$(read_env_var BANIDO_HOST 127.0.0.1)}"
+PORT="${BANIDO_PORT:-$(read_env_var BANIDO_PORT 8765)}"
 
 if [ -x "$APP_DIR/.venv/bin/python" ]; then
     PYTHON_EXE="$APP_DIR/.venv/bin/python"

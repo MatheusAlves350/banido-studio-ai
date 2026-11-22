@@ -19,12 +19,13 @@ Pipeline automatizado de altíssima fidelidade para processar gravações do **O
   - **NVIDIA NIM** (endpoint compatível com OpenAI em `integrate.api.nvidia.com`) para modelos abertos hospedados na nuvem.
   - **Claude Web (1-Clique)**: copia o prompt estruturado para colar no `claude.ai` e importa a resposta JSON de volta no painel.
 - **Operações 100% Lossless (Zero Re-renderização de Vídeo)**:
-  - **Normalização YouTube Gold (`-15.5 LUFS`)**: reequilibra a Faixa 1 (Mix Geral) mantendo o vídeo 4K AV1 e todas as faixas auxiliares (2..N) intactas via stream copy (`-c:v copy`), com validação rigorosa via `ffprobe` antes da substituição atômica.
-  - **Cortes Instantâneos**: exportação de highlights ou trechos manuais em segundos via `ffmpeg -c:v copy`.
+  - **Normalização YouTube Gold (`-15.5 LUFS`)**: pode ser executada de forma isolada, em lote **ou integrada diretamente ao processamento padrão** (opção selecionável na interface antes de clicar em Processar). Reequilibra a Faixa 1 mantendo o vídeo 4K AV1 e todas as faixas auxiliares (2..N) intactas via stream copy (`-c:v copy`), com validação via `ffprobe` antes da substituição atômica.
+  - **Cortes Instantâneos**: exportação de highlights ou trechos manuais em segundos via `ffmpeg -c:v copy`, com opção de manter todas as faixas de áudio para edição posterior e proteção contra sobrescrita (`(2)`, `(3)`).
   - **Capítulos no `.mkv`**: gravação instantânea in-place com `mkvpropedit` (MKVToolNix) ou fallback lossless via FFmpeg.
-  - **Renomeação Segura**: renomeia simultaneamente `.mkv` e `.srt` no padrão `DATA - JOGO - TÍTULO`.
-- **Arquitetura Desacoplada & Multi-Instância**:
-  - Servidor **FastAPI** leve (`<5ms` de latência) + subprocesso dedicado (`app/worker.py`) com histórico de jobs e logs coloridos ao vivo.
+  - **Renomeação Segura**: renomeia simultaneamente `.mkv` e `.srt` no padrão `DATA - JOGO - TÍTULO`, sem sobrescrever arquivos existentes.
+- **Arquitetura Desacoplada, Segura & Multi-Instância**:
+  - Servidor **FastAPI** leve (`<5ms` de latência) sem PyTorch/SpeechBrain na memória web + subprocessos dedicados (`app/worker.py` e coleta vocal isolada em `app/voice_bank.py`) com histórico de jobs e logs coloridos ao vivo.
+  - Proteção contra CSRF local (`X-Banido-Token` gerado por sessão), validação de `Host` (`TrustedHostMiddleware`), mascaramento de chaves de API no `GET /api/settings`, travas de concorrência (`409 Conflict`) e sincronização com remoção suave/reassociação automática de arquivos renomeados fora do app.
   - 100% configurável via `.env` para rodar múltiplas instâncias, discos separados (HDD + SSD) e diferentes criadores.
 
 ---
@@ -148,7 +149,8 @@ Cada instância mantém seu próprio SQLite, logs, banco de vozes e porta HTTP d
 
 - **Nenhuma chave de API fica armazenada no código-fonte.**
 - As chaves podem ser informadas na interface Web (`⚙️ Configurações das IAs` → salvas localmente em `<BASE_DIR>/database/banido_studio.db` e `settings.json`) **ou** via `.env` (`GOOGLE_API_KEY` / `NVIDIA_API_KEY`).
-- O `.gitignore` bloqueia explicitamente `.env`, `.env.local`, `data/`, `database/`, `settings.json`, `*.db*`, `logs/`, `temp/`, `models/`, `Cortes/`, `vozes_amigos/`, `obs_recordings/` e arquivos de mídia (`.mkv`, `.mp4`, `.wav`, `.srt`, `.npy`).
+- O endpoint `GET /api/settings` devolve **apenas a versão mascarada** das chaves (ex.: `AIza...1234`), exigindo o token de sessão (`X-Banido-Token`) gerado no boot do servidor, e o `TrustedHostMiddleware` restringe o cabeçalho `Host` a `localhost`/`127.0.0.1` por padrão (configurável via `BANIDO_ALLOWED_HOSTS`).
+- O `.gitignore` bloqueia explicitamente `.env`, `.env.local`, `data/`, `database/`, `settings.json`, `obs_backups/`, `*.db*`, `logs/`, `temp/`, `models/`, `Cortes/`, `vozes_amigos/`, `obs_recordings/` e arquivos de mídia (`.mkv`, `.mp4`, `.wav`, `.srt`, `.npy`).
 
 ---
 
@@ -173,7 +175,7 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 1. Coloque gravações `.mkv` na pasta configurada (`BANIDO_OBS_DIR`) e clique em **🔄 Atualizar**.
 2. Opcionalmente informe o **Jogo** e um **Contexto da Sessão** (ajuda o `initial_prompt` do Whisper e a IA).
-3. Escolha a engine (**Google Gemini**, **NVIDIA NIM** ou **Claude Web**) e clique em **Processar Vídeo**.
+3. Escolha a engine (**Google Gemini**, **NVIDIA NIM** ou **Claude Web**), marque opcionalmente **🔊 Incluir normalização de áudio (YouTube Gold lossless) ao processar** se quiser normalizar automaticamente ao final do pipeline, e clique em **🚀 PROCESSAR VÍDEO COMPLETO**.
 4. Na seção de **Vozes Detectadas**:
    - Ouça os trechos de preview diretamente no navegador;
    - Confirme os nomes dos participantes para salvar amostras no Banco de Vozes (`vozes_amigos/`) e atualizar a transcrição/`.srt` instantaneamente.
@@ -220,9 +222,23 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 │   └── static/               # Interface Web (index.html, app.js, style.css)
 ├── docs/
 │   └── ARCHITECTURE.md       # Detalhes técnicos da arquitetura
+├── tests/
+│   └── test_core.py          # Testes unitários e de API (pytest)
+├── .github/workflows/
+│   └── ci.yml                # Pipeline CI (AST, Ruff, pytest, JS check)
 ├── .env.example              # Modelo completo de configuração por instância
+├── .gitattributes            # Normalização LF/CRLF entre Linux/macOS e Windows
 ├── .gitignore                # Proteção contra commit de chaves, dados e mídia
 ├── Iniciar_Banido_Studio.bat # Inicializador portável para Windows
 ├── start.sh                  # Inicializador portável para Linux/macOS
 └── requirements.txt
+```
+
+---
+
+## 🧪 Testes Automatizados
+
+```bash
+pip install pytest httpx
+pytest -q
 ```
