@@ -110,6 +110,13 @@
                                 🔄 Reiniciar
                             </button>
                         </div>
+                        <div class="process-options-row" style="width: 100%; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(148, 163, 184, 0.14);">
+                            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); user-select: none;" title="Quando marcado, após concluir transcrição e análise da IA, normaliza a Faixa 1 no padrão YouTube Gold (-15.5 LUFS) mantendo o vídeo 4K lossless e as faixas 2–6 intactas.">
+                                <input type="checkbox" id="chk-normalize-on-process" style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
+                                <span>🔊 Incluir normalização de áudio (YouTube Gold lossless) ao processar</span>
+                            </label>
+                            <span id="normalize-on-process-hint" style="font-size: 12px; color: var(--text-secondary);"></span>
+                        </div>
                     </section>
 
                     <!-- ERROR / INTERRUPTED BANNER -->
@@ -244,6 +251,13 @@
                                 <input type="text" id="manual-cut-title" placeholder="Título do corte personalizado..." style="flex: 1; min-width: 180px;">
                                 <button type="button" id="btn-manual-cut-export" class="btn-secondary btn-sm" style="border-color: var(--accent); color: var(--accent);">✂️ Exportar Corte 4K</button>
                             </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px 0; font-size: 12px; color: var(--text-secondary);">
+                                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                                    <input type="checkbox" id="chk-keep-all-tracks" style="accent-color: var(--accent); cursor: pointer;">
+                                    <span>🎚️ Manter todas as faixas de áudio nos cortes (ideal para edição posterior)</span>
+                                </label>
+                                <span title="Cortes com -c:v copy iniciam no keyframe imediatamente anterior para preservar 100% da qualidade sem re-renderizar.">ℹ️ Cortes lossless alinham no keyframe anterior (zero perda de qualidade).</span>
+                            </div>
 
                             <div class="highlights-grid" id="highlights-grid">
                                 <!-- Populado via JS -->
@@ -363,6 +377,7 @@
                     <div style="display: flex; gap: 8px;">
                         <input type="password" id="input-google-key" placeholder="AIzaSy..." style="flex: 1;">
                         <button type="button" id="btn-test-google-key" class="btn-secondary" style="white-space: nowrap;">🧪 Testar Chave</button>
+                        <button type="button" id="btn-clear-google-key" class="btn-secondary" style="white-space: nowrap; display: none;" title="Remover chave salva">🗑️ Limpar</button>
                     </div>
                     <small id="google-key-feedback">Obtenha grátis em <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> (Lê até 10 horas de sessão de uma vez).</small>
                     
@@ -394,6 +409,7 @@
                     <div style="display: flex; gap: 8px;">
                         <input type="password" id="input-nvidia-key" placeholder="nvapi-..." style="flex: 1;">
                         <button type="button" id="btn-test-nvidia-key" class="btn-secondary" style="white-space: nowrap;">🧪 Testar Chave</button>
+                        <button type="button" id="btn-clear-nvidia-key" class="btn-secondary" style="white-space: nowrap; display: none;" title="Remover chave salva">🗑️ Limpar</button>
                     </div>
                     <small id="nvidia-key-feedback">Para rodar modelos abertos hospedados na nuvem da NVIDIA.</small>
                     
@@ -430,6 +446,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=6"></script>
+    <script src="/static/app.js?v=7"></script>
 </body>
 </html>

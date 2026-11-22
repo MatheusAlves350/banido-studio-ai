@@ -1,3 +1,20 @@
+// Proteção CSRF automática: envia o token de sessão em todas as chamadas /api/
+const BANIDO_API_TOKEN = document.querySelector('meta[name="banido-token"]')?.getAttribute("content") || "";
+const _nativeFetch = window.fetch.bind(window);
+window.fetch = function apiFetch(input, init = {}) {
+    const url = typeof input === "string" ? input : (input && input.url ? input.url : "");
+    if (BANIDO_API_TOKEN && typeof url === "string" && url.startsWith("/api/")) {
+        const opts = { ...init };
+        const headers = new Headers(opts.headers || {});
+        if (!headers.has("X-Banido-Token")) {
+            headers.set("X-Banido-Token", BANIDO_API_TOKEN);
+        }
+        opts.headers = headers;
+        return _nativeFetch(input, opts);
+    }
+    return _nativeFetch(input, init);
+};
+
 let allVideos = [];
 let activeVideoId = null;
 let pollInterval = null;
@@ -207,6 +224,25 @@ function setupEventListeners() {
     });
 
     // Process, Normalize Audio & Cancel/Reset buttons
+    const chkNormProcess = document.getElementById("chk-normalize-on-process");
+    if (chkNormProcess) {
+        try {
+            chkNormProcess.checked = localStorage.getItem("banido_normalize_on_process") === "1";
+            chkNormProcess.addEventListener("change", () => {
+                localStorage.setItem("banido_normalize_on_process", chkNormProcess.checked ? "1" : "0");
+            });
+        } catch (_) {}
+    }
+    const chkKeepTracks = document.getElementById("chk-keep-all-tracks");
+    if (chkKeepTracks) {
+        try {
+            chkKeepTracks.checked = localStorage.getItem("banido_keep_all_tracks") === "1";
+            chkKeepTracks.addEventListener("change", () => {
+                localStorage.setItem("banido_keep_all_tracks", chkKeepTracks.checked ? "1" : "0");
+            });
+        } catch (_) {}
+    }
+
     document.getElementById("btn-start-process").addEventListener("click", startProcessing);
     document.getElementById("btn-normalize-audio").addEventListener("click", normalizeVideoAudio);
     document.getElementById("btn-normalize-batch").addEventListener("click", toggleBatchAudioNormalize);
@@ -214,6 +250,8 @@ function setupEventListeners() {
     document.getElementById("btn-retry-ai-only").addEventListener("click", reanalyzeAiOnly);
     document.getElementById("btn-reset-process").addEventListener("click", resetProcessing);
     document.getElementById("btn-retry-process").addEventListener("click", () => resetProcessing(true));
+    document.getElementById("btn-clear-google-key")?.addEventListener("click", () => clearSavedApiKey("google"));
+    document.getElementById("btn-clear-nvidia-key")?.addEventListener("click", () => clearSavedApiKey("nvidia"));
     document.getElementById("btn-show-log-from-err").addEventListener("click", () => {
         const cc = document.getElementById("console-card");
         const co = document.getElementById("console-output");
@@ -737,6 +775,13 @@ async function fetchVideoDetails(videoId, includeData = true) {
             </div>
         `;
 
+        const normHint = document.getElementById("normalize-on-process-hint");
+        if (normHint) {
+            normHint.innerHTML = v.audio_normalized
+                ? `<span style="color: #34d399;">✅ Este vídeo já está normalizado (etapa será pulada automaticamente)</span>`
+                : `<span>Executado ao final (vídeo 100% lossless; requer espaço livre igual ao tamanho do arquivo)</span>`;
+        }
+
         const progressContainer = document.getElementById("progress-container");
         const resultsContainer = document.getElementById("results-container");
         const errorContainer = document.getElementById("error-container");
@@ -1171,23 +1216,23 @@ function renderSpeakers(videoId, data, knownFriends = []) {
     }
 
     const hostName = studioConfig.host_name || "Host";
-    const matheusCard = document.createElement("div");
-    matheusCard.className = "speaker-card";
-    matheusCard.innerHTML = `
+    const hostCard = document.createElement("div");
+    hostCard.className = "speaker-card";
+    hostCard.innerHTML = `
         <div class="speaker-header">
             <span class="speaker-tag">[${escapeHtml(hostName)}]</span>
             <span class="status-badge status-completed">Microfone Isolado (100%)</span>
         </div>
         <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">Identificado pela energia diferencial da Faixa 2 do OBS. Ouça ou salve amostras .WAV manualmente quando desejar:</p>
     `;
-    matheusCard.appendChild(createVoicePreviewControl(videoId, hostName, null));
-    const btnMatheus = document.createElement("button");
-    btnMatheus.className = "btn-secondary";
-    btnMatheus.style.width = "100%";
-    btnMatheus.textContent = `💾 Salvar Amostras .WAV de ${hostName}`;
-    btnMatheus.addEventListener("click", () => harvestMatheusSamples(videoId, btnMatheus));
-    matheusCard.appendChild(btnMatheus);
-    grid.appendChild(matheusCard);
+    hostCard.appendChild(createVoicePreviewControl(videoId, hostName, null));
+    const btnHost = document.createElement("button");
+    btnHost.className = "btn-secondary";
+    btnHost.style.width = "100%";
+    btnHost.textContent = `💾 Salvar Amostras .WAV de ${hostName}`;
+    btnHost.addEventListener("click", () => harvestHostSamples(videoId, btnHost));
+    hostCard.appendChild(btnHost);
+    grid.appendChild(hostCard);
 
     const speakerSamples = data.speaker_samples || {};
     const speakerMapping = data.speaker_mapping || {};
@@ -1258,7 +1303,7 @@ function renderSpeakers(videoId, data, knownFriends = []) {
     });
 }
 
-async function harvestMatheusSamples(videoId, btnEl) {
+async function harvestHostSamples(videoId, btnEl) {
     const hostName = studioConfig.host_name || "Host";
     try {
         if (btnEl) {
@@ -1522,6 +1567,7 @@ async function exportManualCut() {
             btn.disabled = true;
             btn.textContent = "⏳ Cortando 4K...";
         }
+        const keepAllTracks = Boolean(document.getElementById("chk-keep-all-tracks")?.checked);
         const res = await fetch("/api/cut", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1530,7 +1576,8 @@ async function exportManualCut() {
                 start_sec: startSec,
                 end_sec: endSec,
                 title: title,
-                boost_discord: true
+                boost_discord: true,
+                keep_all_tracks: keepAllTracks
             })
         });
         const data = await res.json();
@@ -1556,6 +1603,7 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
         btn.innerText = "⏳ Cortando em 4K...";
         btn.disabled = true;
 
+        const keepAllTracks = Boolean(document.getElementById("chk-keep-all-tracks")?.checked);
         const res = await fetch("/api/cut", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1564,7 +1612,8 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
                 start_sec: startSec,
                 end_sec: endSec,
                 title: title,
-                boost_discord: true
+                boost_discord: true,
+                keep_all_tracks: keepAllTracks
             })
         });
         const data = await res.json();
@@ -1590,6 +1639,7 @@ async function startProcessing() {
     const extraContext = (document.getElementById("session-context-input")?.value || "").trim();
     const engine = document.getElementById("select-engine").value;
     const activeModel = document.getElementById("select-active-model").value;
+    const normalizeAudio = Boolean(document.getElementById("chk-normalize-on-process")?.checked);
 
     try {
         lastRawLogText = "";
@@ -1600,10 +1650,15 @@ async function startProcessing() {
                 manual_game: manualGame,
                 extra_context: extraContext,
                 engine: engine,
-                custom_model: activeModel
+                custom_model: activeModel,
+                normalize_audio: normalizeAudio
             })
         });
         const data = await res.json();
+        if (!res.ok) {
+            alert("Não foi possível iniciar: " + (data.detail || `HTTP ${res.status}`));
+            return;
+        }
         if (data.already_running) {
             alert(data.message);
         }
@@ -1927,19 +1982,35 @@ async function loadSettings(applyToActionBar = false) {
         const nvidiaModelSelect = document.getElementById("select-nvidia-default-model");
         const engineSelect = document.getElementById("select-engine");
 
-        if (data.google_api_key) {
-            googleInput.value = data.google_api_key;
-            feedback.innerHTML = `<span style="color: #10b981; font-weight: 600;">✅ Chave salva e ativa no sistema!</span> (Obtenha grátis em <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a>)`;
+        const btnClearGoogle = document.getElementById("btn-clear-google-key");
+        const btnClearNvidia = document.getElementById("btn-clear-nvidia-key");
+
+        googleInput.value = "";
+        if (data.has_google_api_key) {
+            const mask = data.google_api_key_masked || "****";
+            googleInput.placeholder = `Chave salva (${mask}) — digite nova para substituir`;
+            feedback.innerHTML = `<span style="color: #10b981; font-weight: 600;">✅ Chave salva e ativa (${escapeHtml(mask)})!</span> Deixe em branco para manter a atual.`;
+            if (btnClearGoogle) btnClearGoogle.style.display = "inline-block";
         } else {
-            googleInput.value = "";
+            googleInput.placeholder = "AIzaSy...";
             feedback.innerHTML = `Obtenha grátis em <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> (Lê até 10 horas de sessão de uma vez).`;
+            if (btnClearGoogle) btnClearGoogle.style.display = "none";
         }
 
-        nvidiaInput.value = data.nvidia_api_key || "";
-        if (nvidiaFeedback) {
-            nvidiaFeedback.innerHTML = data.nvidia_api_key
-                ? `<span style="color: #10b981; font-weight: 600;">✅ Chave NVIDIA salva e ativa no sistema!</span>`
-                : `Para rodar modelos abertos hospedados na nuvem da NVIDIA.`;
+        nvidiaInput.value = "";
+        if (data.has_nvidia_api_key) {
+            const mask = data.nvidia_api_key_masked || "****";
+            nvidiaInput.placeholder = `Chave salva (${mask}) — digite nova para substituir`;
+            if (nvidiaFeedback) {
+                nvidiaFeedback.innerHTML = `<span style="color: #10b981; font-weight: 600;">✅ Chave NVIDIA salva e ativa (${escapeHtml(mask)})!</span> Deixe em branco para manter a atual.`;
+            }
+            if (btnClearNvidia) btnClearNvidia.style.display = "inline-block";
+        } else {
+            nvidiaInput.placeholder = "nvapi-...";
+            if (nvidiaFeedback) {
+                nvidiaFeedback.innerHTML = `Para rodar modelos abertos hospedados na nuvem da NVIDIA.`;
+            }
+            if (btnClearNvidia) btnClearNvidia.style.display = "none";
         }
 
         if (data.google_model && googleModelSelect) {
@@ -2014,6 +2085,32 @@ async function testNvidiaKey(showAlert = true) {
     }
 }
 
+async function clearSavedApiKey(provider) {
+    const label = provider === "google" ? "Google Gemini" : "NVIDIA NIM";
+    if (!confirm(`Deseja remover a chave de API salva do ${label}?`)) return;
+    const googleModel = document.getElementById("select-google-default-model").value;
+    const nvidiaModel = document.getElementById("select-nvidia-default-model").value;
+    const aiProvider = document.getElementById("select-engine").value || "gemini";
+    try {
+        const res = await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                clear_google_key: provider === "google",
+                clear_nvidia_key: provider === "nvidia",
+                ai_provider: aiProvider,
+                google_model: googleModel,
+                nvidia_model: nvidiaModel
+            })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await loadSettings(false);
+        alert(`Chave do ${label} removida com sucesso.`);
+    } catch (e) {
+        alert("Erro ao remover chave: " + e);
+    }
+}
+
 async function saveSettings() {
     const googleKey = document.getElementById("input-google-key").value.trim();
     const nvidiaKey = document.getElementById("input-nvidia-key").value.trim();
@@ -2021,18 +2118,24 @@ async function saveSettings() {
     const nvidiaModel = document.getElementById("select-nvidia-default-model").value;
     const aiProvider = document.getElementById("select-engine").value || "gemini";
 
+    const payload = {
+        ai_provider: aiProvider,
+        google_model: googleModel,
+        nvidia_model: nvidiaModel
+    };
+    if (googleKey) payload.google_api_key = googleKey;
+    if (nvidiaKey) payload.nvidia_api_key = nvidiaKey;
+
     try {
-        await fetch("/api/settings", {
+        const res = await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                google_api_key: googleKey,
-                nvidia_api_key: nvidiaKey,
-                ai_provider: aiProvider,
-                google_model: googleModel,
-                nvidia_model: nvidiaModel
-            })
+            body: JSON.stringify(payload)
         });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
         alert("Configurações e modelos salvos com sucesso!");
         await loadSettings(false);
         const preferred = aiProvider === "nvidia" ? nvidiaModel : googleModel;
