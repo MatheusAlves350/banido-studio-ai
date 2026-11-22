@@ -12,7 +12,7 @@ from typing import Optional
 # Garantir UTF-8 no Windows
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
-from app.config import DATABASE_DIR, TEMP_DIR, LEGACY_TEMP_DIR, OBS_RECORDINGS_DIR, HOST_SPEAKER_NAME
+from app.config import DATABASE_DIR, TEMP_DIR, LEGACY_TEMP_DIR, OBS_RECORDINGS_DIR, HOST_SPEAKER_NAME, GROUP_NAME
 from app.database import (
     get_video_by_id, get_all_videos, get_job_by_id, update_video_progress,
     update_job_step, finish_job_record, save_video_result,
@@ -117,7 +117,8 @@ def run_worker(
     manual_game: str,
     engine: str,
     custom_model: str,
-    extra_context: str = ""
+    extra_context: str = "",
+    normalize_audio: bool = False
 ):
     job = get_job_by_id(job_id)
     log_path = Path(job["log_file"]) if job and job.get("log_file") else (DATABASE_DIR / "logs" / f"job_{job_id}.log")
@@ -317,7 +318,7 @@ def run_worker(
             duration_sec = trans_res["duration"]
 
         # 3. Preparar prompt e SALVAR CHECKPOINT NO SQLITE ANTES DA API DA IA
-        known_friends = list_known_voice_names(exclude_matheus=False)
+        known_friends = list_known_voice_names(exclude_host=False)
         transcript_for_ai = format_transcript_for_ai(
             segments, hype_scores,
             manual_game=effective_game,
@@ -328,7 +329,7 @@ def run_worker(
         ai_data = {
             "main_game": manual_game or video.get("game_name") or "Gameplay",
             "other_games": [],
-            "title_options": [f"{manual_game or 'Banido'} - Sessão com Amigos no Discord ({mkv_path.stem})"],
+            "title_options": [f"{manual_game or GROUP_NAME} - Sessão com Amigos no Discord ({mkv_path.stem})"],
             "session_summary": "Sessão gravada com amigos no Discord.",
             "chapters": [{"timestamp": "00:00:00", "title": "Início da Gravação"}],
             "topics": [],
@@ -423,11 +424,8 @@ def run_worker(
         # Recalcular descrição final do YouTube já com os integrantes finais (segments + speaker_mapping)
         ai_data["youtube_description"] = build_youtube_description(ai_data)
 
-        total_elapsed = time.time() - t_start
-        done_msg = f"Concluído em {int(total_elapsed // 60)}m {int(total_elapsed % 60)}s!"
-        if ai_data.get("ai_warning"):
-            done_msg += " (Legenda pronta; verifique aviso da IA)"
-
+        # Persistir resultado completo no SQLite ANTES da etapa opcional de normalização de áudio
+        # (garante que a transcrição, vozes e análise da IA fiquem 100% salvas mesmo se faltar espaço em disco)
         save_video_result(
             video_id=video_id,
             game_name=ai_data.get("main_game", manual_game or "Gameplay"),
@@ -435,8 +433,42 @@ def run_worker(
             mosaic_path=f"/mosaics/{mosaic_jpg.name}",
             srt_path=str(srt_path),
             ai_data=ai_data,
-            status_msg=done_msg
+            status_msg="Análise de IA concluída!"
         )
+
+        audio_norm_suffix = ""
+        if mode == "full" and normalize_audio:
+            print("\n[AUDIO NORM] Etapa opcional ativada: iniciando normalização YouTube Gold (vídeo 100% lossless)...", flush=True)
+            report("Etapa Opcional: Normalizando áudio YouTube Gold (vídeo 100% lossless)...", 0.95)
+
+            def _norm_cb(sub_msg: str, sub_pct: float):
+                mapped_pct = 0.95 + min(0.04, float(sub_pct) * 0.04)
+                report(f"Áudio YouTube Gold: {sub_msg}", mapped_pct)
+
+            norm_res = normalize_mkv_audio_lossless(mkv_path, progress_callback=_norm_cb, force=False)
+            if norm_res.get("success"):
+                set_video_audio_normalized(
+                    video_id,
+                    normalized=True,
+                    size_gb=norm_res.get("size_gb"),
+                    mtime=norm_res.get("mtime")
+                )
+                if norm_res.get("skipped"):
+                    print("[AUDIO NORM] ✅ Vídeo já estava normalizado (YouTube Gold); etapa pulada automaticamente.", flush=True)
+                    audio_norm_suffix = " | Áudio já normalizado"
+                else:
+                    audio_norm_suffix = " | Áudio YouTube Gold normalizado"
+            else:
+                norm_err = norm_res.get("error", "Falha desconhecida")
+                print(f"[AUDIO NORM] ⚠️ Normalização opcional não concluída (transcrição e IA preservadas): {norm_err}", flush=True)
+                audio_norm_suffix = f" | Aviso áudio: {norm_err[:80]}"
+
+        total_elapsed = time.time() - t_start
+        done_msg = f"Concluído em {int(total_elapsed // 60)}m {int(total_elapsed % 60)}s!{audio_norm_suffix}"
+        if ai_data.get("ai_warning"):
+            done_msg += " (Legenda pronta; verifique aviso da IA)"
+
+        update_video_progress(video_id, done_msg, 1.0, "completed")
         finish_job_record(job_id, status="completed", last_step=done_msg)
         job_succeeded = True
         print("========================================================================", flush=True)
@@ -484,6 +516,7 @@ if __name__ == "__main__":
     parser.add_argument("--context", type=str, default="")
     parser.add_argument("--engine", type=str, default="gemini")
     parser.add_argument("--model", type=str, default="")
+    parser.add_argument("--normalize-audio", action="store_true", default=False)
     args = parser.parse_args()
 
     run_worker(
@@ -493,5 +526,6 @@ if __name__ == "__main__":
         manual_game=args.game,
         engine=args.engine,
         custom_model=args.model,
-        extra_context=args.context
+        extra_context=args.context,
+        normalize_audio=args.normalize_audio
     )

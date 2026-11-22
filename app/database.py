@@ -48,6 +48,8 @@ def init_db():
         mosaic_path TEXT DEFAULT '',
         srt_path TEXT DEFAULT '',
         audio_normalized INTEGER DEFAULT 0,
+        is_missing INTEGER DEFAULT 0,
+        file_size_bytes INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -58,6 +60,10 @@ def init_db():
         c.execute("ALTER TABLE videos ADD COLUMN audio_normalized INTEGER DEFAULT 0")
     if "session_context" not in existing_cols:
         c.execute("ALTER TABLE videos ADD COLUMN session_context TEXT DEFAULT ''")
+    if "is_missing" not in existing_cols:
+        c.execute("ALTER TABLE videos ADD COLUMN is_missing INTEGER DEFAULT 0")
+    if "file_size_bytes" not in existing_cols:
+        c.execute("ALTER TABLE videos ADD COLUMN file_size_bytes INTEGER DEFAULT 0")
     c.execute("""
     CREATE TABLE IF NOT EXISTS video_data (
         video_id INTEGER PRIMARY KEY,
@@ -298,10 +304,13 @@ def reset_video_status(video_id: int, msg: str = "", restore_completed: bool = F
     conn.close()
 
 
-def sync_obs_videos(obs_dir: Path):
+def sync_obs_videos(obs_dir: Path, min_stable_age_sec: float = 60.0):
     """
-    Sincroniza a pasta de gravações OBS configurada sem NUNCA resetar vídeos em processamento
-    e sem apagar o banco caso o diretório esteja temporariamente indisponível.
+    Sincroniza a pasta de gravações OBS configurada sem NUNCA resetar vídeos em processamento:
+    - Marca arquivos ausentes como is_missing=1 (remoção suave, preservando análises/transcrições).
+    - Reassocia arquivos renomeados fora do app pelo par (tamanho + mtime).
+    - Ignora arquivos recém-modificados (< min_stable_age_sec) para evitar processar gravações ativas do OBS.
+    - Atualiza size_gb, file_size_bytes e mtime de arquivos já cadastrados.
     """
     if not obs_dir.exists():
         print(f"[AVISO] Diretório OBS indisponível ({obs_dir}); sincronização ignorada para proteger o banco.")
@@ -312,33 +321,88 @@ def sync_obs_videos(obs_dir: Path):
 
     current_files = list(obs_dir.glob("*.mkv"))
     current_filenames = {f.name: f for f in current_files}
+    now_epoch = time.time()
 
-    # 1. Apagar do banco vídeos que não existem mais no disco (exceto se estiver processando)
-    c.execute("SELECT id, filename, status FROM videos")
+    # 1. Remoção suave: marca como ausente sem apagar análises/transcrições salvas
+    c.execute("SELECT id, filename, status, COALESCE(is_missing, 0) AS is_missing FROM videos")
     existing_rows = c.fetchall()
     for row in existing_rows:
         if row["filename"] not in current_filenames and row["status"] != "processing":
-            c.execute("DELETE FROM video_data WHERE video_id = ?", (row["id"],))
-            c.execute("DELETE FROM videos WHERE id = ?", (row["id"],))
+            if not row["is_missing"]:
+                c.execute("UPDATE videos SET is_missing = 1 WHERE id = ?", (row["id"],))
 
-    # 2. Inserir novos arquivos
+    # 2. Atualizar existentes, reassociar renomeados fora do app ou inserir novos arquivos estáveis
     for name, fpath in current_filenames.items():
         try:
             stat = fpath.stat()
-            size_gb = round(stat.st_size / (1024 ** 3), 2)
-            mtime = stat.st_mtime
+            size_bytes = int(stat.st_size)
+            size_gb = round(size_bytes / (1024 ** 3), 2)
+            mtime = float(stat.st_mtime)
         except OSError:
             continue
 
-        c.execute("SELECT id FROM videos WHERE filename = ?", (name,))
+        srt_candidate = fpath.with_suffix(".srt")
+        srt_str = str(srt_candidate) if srt_candidate.exists() else ""
+
+        c.execute("SELECT id, status, srt_path FROM videos WHERE filename = ?", (name,))
         exists = c.fetchone()
-        if not exists:
-            srt_candidate = fpath.with_suffix(".srt")
-            srt_str = str(srt_candidate) if srt_candidate.exists() else ""
+        if exists:
+            eff_srt = exists["srt_path"] or srt_str
             c.execute("""
-            INSERT INTO videos (filename, file_path, size_gb, duration_sec, mtime, status, srt_path)
-            VALUES (?, ?, ?, 0.0, ?, 'unprocessed', ?)
-            """, (name, str(fpath), size_gb, mtime, srt_str))
+            UPDATE videos
+            SET file_path = ?,
+                size_gb = ?,
+                file_size_bytes = ?,
+                mtime = ?,
+                is_missing = 0,
+                srt_path = ?
+            WHERE id = ?
+            """, (str(fpath), size_gb, size_bytes, mtime, eff_srt, exists["id"]))
+            continue
+
+        # Ignorar arquivos modificados recentemente (ex.: OBS ainda gravando ou cópia em andamento)
+        if min_stable_age_sec > 0 and (now_epoch - mtime) < min_stable_age_sec:
+            continue
+
+        # Tentar reassociar com um registro marcado como ausente (arquivo renomeado externamente)
+        c.execute("""
+        SELECT id, size_gb, COALESCE(file_size_bytes, 0) AS file_size_bytes, mtime, srt_path
+        FROM videos
+        WHERE COALESCE(is_missing, 0) = 1
+        """)
+        missing_candidates = c.fetchall()
+        matched_id = None
+        for cand in missing_candidates:
+            cand_mtime = float(cand["mtime"] or 0.0)
+            if abs(cand_mtime - mtime) > 2.0:
+                continue
+            cand_bytes = int(cand["file_size_bytes"] or 0)
+            if cand_bytes > 0:
+                if cand_bytes == size_bytes:
+                    matched_id = cand["id"]
+                    break
+            elif abs(float(cand["size_gb"] or 0.0) - size_gb) <= 0.01:
+                matched_id = cand["id"]
+                break
+
+        if matched_id is not None:
+            c.execute("""
+            UPDATE videos
+            SET filename = ?,
+                file_path = ?,
+                size_gb = ?,
+                file_size_bytes = ?,
+                mtime = ?,
+                is_missing = 0,
+                srt_path = CASE WHEN ? != '' THEN ? ELSE srt_path END
+            WHERE id = ?
+            """, (name, str(fpath), size_gb, size_bytes, mtime, srt_str, srt_str, matched_id))
+            print(f"[SYNC] Arquivo renomeado externamente reassociado ao Vídeo #{matched_id}: {name}")
+        else:
+            c.execute("""
+            INSERT INTO videos (filename, file_path, size_gb, file_size_bytes, duration_sec, mtime, status, srt_path, is_missing)
+            VALUES (?, ?, ?, ?, 0.0, ?, 'unprocessed', ?, 0)
+            """, (name, str(fpath), size_gb, size_bytes, mtime, srt_str))
 
     conn.commit()
     conn.close()
@@ -456,10 +520,13 @@ def update_video_paths_after_rename(
         record_game_history(clean_game, increment=True)
 
 
-def get_all_videos() -> List[Dict[str, Any]]:
+def get_all_videos(include_missing: bool = False) -> List[Dict[str, Any]]:
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM videos ORDER BY mtime DESC")
+    if include_missing:
+        c.execute("SELECT * FROM videos ORDER BY mtime DESC")
+    else:
+        c.execute("SELECT * FROM videos WHERE COALESCE(is_missing, 0) = 0 ORDER BY mtime DESC")
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows

@@ -2,23 +2,25 @@ import os
 import re
 import sys
 import json
-import time
 import signal
 import shutil
+import secrets
+import tempfile
 import threading
 import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, Any, Optional
-from fastapi import FastAPI, HTTPException
+from typing import Dict, Any, Optional, List
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 
 from app.config import (
     PROJECT_ROOT, BASE_DIR, OBS_RECORDINGS_DIR, DATABASE_DIR, VOICE_BANK_DIR,
     CLIPS_DIR, TEMP_DIR, LOGS_DIR, VENV_PYTHON,
-    HOST_SPEAKER_NAME, GROUP_NAME, PC_SPECS, SERVER_HOST, SERVER_PORT
+    HOST_SPEAKER_NAME, GROUP_NAME, PC_SPECS, SERVER_HOST, SERVER_PORT, ALLOWED_HOSTS
 )
 from app.database import (
     init_db, startup_maintenance, sync_obs_videos, get_all_videos, get_video_by_id,
@@ -53,6 +55,110 @@ SPEAKER_CONFIRM_LOCK = threading.Lock()
 AUDIO_NORM_CHECK_CACHE: Dict[int, tuple] = {}
 
 
+# Token de sessão gerado a cada inicialização para proteção contra CSRF em chamadas locais
+API_AUTH_TOKEN = (os.getenv("BANIDO_API_TOKEN") or "").strip() or secrets.token_urlsafe(32)
+
+
+def _mask_secret(val: str) -> str:
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    if len(s) <= 8:
+        return "****"
+    return f"{s[:4]}...{s[-4:]}"
+
+
+def _build_worker_env() -> Dict[str, str]:
+    worker_env = os.environ.copy()
+    existing_pp = worker_env.get("PYTHONPATH", "")
+    worker_env["PYTHONPATH"] = f"{PROJECT_ROOT}{os.pathsep}{existing_pp}" if existing_pp else str(PROJECT_ROOT)
+    return worker_env
+
+
+def _spawn_worker(cmd: List[str], boot_log: Path):
+    boot_fh = open(boot_log, "w", encoding="utf-8", errors="replace")
+    kwargs: Dict[str, Any] = {
+        "cwd": str(PROJECT_ROOT),
+        "env": _build_worker_env(),
+        "stdout": subprocess.DEVNULL,
+        "stderr": boot_fh,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(cmd, **kwargs)
+    return proc, boot_fh
+
+
+def _run_voice_harvest_subprocess(
+    mode: str,
+    mkv_path: Path,
+    segments: List[Dict[str, Any]],
+    speaker_tag: str = "",
+    friend_name: str = "",
+    max_samples: int = 3
+) -> Dict[str, Any]:
+    """
+    Executa a extração de embeddings SpeechBrain em um subprocesso isolado de vida curta,
+    evitando carregar PyTorch/CUDA na memória do servidor FastAPI.
+    """
+    python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+    tmp_dir = Path(tempfile.mkdtemp(prefix="banido_harvest_ipc_"))
+    seg_file = tmp_dir / "segments.json"
+    try:
+        seg_file.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+        cmd = [
+            python_exe, "-u", "-m", "app.voice_bank",
+            "--mode", mode,
+            "--mkv", str(mkv_path),
+            "--segments-json", str(seg_file),
+            "--max-samples", str(max_samples),
+        ]
+        if speaker_tag:
+            cmd.extend(["--speaker-tag", speaker_tag])
+        if friend_name:
+            cmd.extend(["--friend-name", friend_name])
+
+        run_kwargs: Dict[str, Any] = {
+            "cwd": str(PROJECT_ROOT),
+            "env": _build_worker_env(),
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "timeout": 240,
+        }
+        if os.name == "nt":
+            run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        res = subprocess.run(cmd, **run_kwargs)
+        if res.returncode != 0:
+            err_msg = (res.stderr or res.stdout or "").strip()[-400:]
+            raise RuntimeError(f"Subprocesso de voz falhou (código {res.returncode}): {err_msg}")
+
+        for line in reversed((res.stdout or "").splitlines()):
+            if line.startswith("BANIDO_HARVEST_JSON:"):
+                return json.loads(line.split("BANIDO_HARVEST_JSON:", 1)[1])
+        return {"friend": friend_name or HOST_SPEAKER_NAME, "samples_saved": []}
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _ensure_not_busy(video_id: Optional[int], action_desc: str):
+    reconcile_worker_processes()
+    if 0 in ACTIVE_PROCESSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Não é possível {action_desc} enquanto a normalização de áudio em lote está em execução."
+        )
+    if video_id is not None and video_id in ACTIVE_PROCESSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Não é possível {action_desc} enquanto este vídeo está sendo processado."
+        )
+
+
 def kill_process_tree(pid: int):
     if pid <= 0:
         return
@@ -64,7 +170,12 @@ def kill_process_tree(pid: int):
                 text=True
             )
         else:
-            os.kill(pid, signal.SIGTERM)
+            try:
+                os.killpg(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                os.kill(pid, signal.SIGTERM)
     except Exception:
         pass
 
@@ -120,7 +231,6 @@ def reconcile_worker_processes():
     for vid, info in list(ACTIVE_PROCESSES.items()):
         proc: subprocess.Popen = info["proc"]
         job_id: int = info["job_id"]
-        mode: str = info.get("mode", "full")
         ret = proc.poll()
         if ret is not None:
             finished_vids.append(vid)
@@ -205,6 +315,26 @@ async def lifespan(app: FastAPI):
 
 init_db()
 app = FastAPI(title="Banido Studio AI", lifespan=lifespan)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+
+
+@app.middleware("http")
+async def csrf_and_token_guard(request: Request, call_next):
+    path = request.url.path
+    method = request.method.upper()
+    needs_token = (
+        (path.startswith("/api/") and method in ("POST", "PUT", "PATCH", "DELETE"))
+        or (path == "/api/settings" and method == "GET")
+    )
+    if needs_token:
+        provided = request.headers.get("X-Banido-Token", "")
+        if not provided or not secrets.compare_digest(provided, API_AUTH_TOKEN):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Token de sessão/CSRF inválido ou ausente. Recarregue a página."}
+            )
+    return await call_next(request)
+
 
 # Montar diretórios de arquivos estáticos
 static_dir = Path(__file__).parent / "static"
@@ -220,7 +350,13 @@ app.mount("/cortes", StaticFiles(directory=str(CLIPS_DIR)), name="cortes")
 
 @app.get("/")
 def get_index():
-    return FileResponse(str(static_dir / "index.html"))
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    meta_tag = f'<meta name="banido-token" content="{API_AUTH_TOKEN}">'
+    if "<head>" in html:
+        html = html.replace("<head>", f"<head>\n    {meta_tag}", 1)
+    else:
+        html = meta_tag + html
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/status")
@@ -333,7 +469,7 @@ def get_video_details(video_id: int, include_data: bool = True):
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
     video["is_worker_alive"] = video_id in ACTIVE_PROCESSES
     if include_data:
-        video["known_friends"] = list_known_voice_names(exclude_matheus=False)
+        video["known_friends"] = list_known_voice_names(exclude_host=False)
 
     # Sincroniza status de normalização da tag do MKV com cache em memória (evita ffprobe a cada clique!)
     if not video.get("audio_normalized") and video.get("status") != "processing":
@@ -372,6 +508,7 @@ class ProcessRequest(BaseModel):
     extra_context: Optional[str] = ""
     engine: Optional[str] = "gemini"
     custom_model: Optional[str] = ""
+    normalize_audio: bool = False
 
 
 def launch_worker_subprocess(
@@ -380,9 +517,15 @@ def launch_worker_subprocess(
     manual_game: str,
     engine: str,
     custom_model: str,
-    extra_context: str = ""
+    extra_context: str = "",
+    normalize_audio: bool = False
 ) -> Dict[str, Any]:
     reconcile_worker_processes()
+    if 0 in ACTIVE_PROCESSES:
+        raise HTTPException(
+            status_code=409,
+            detail="Já existe uma normalização de áudio em lote em execução. Aguarde ou cancele o lote antes."
+        )
     video = get_video_by_id(video_id, include_data=False)
     if not video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
@@ -404,7 +547,7 @@ def launch_worker_subprocess(
             session_context=extra_context.strip(),
             save_default_context=bool(manual_game.strip() and extra_context.strip())
         )
-    if mode == "normalize_audio":
+    if mode == "normalize_audio" or (mode == "full" and normalize_audio):
         AUDIO_NORM_CHECK_CACHE.pop(video_id, None)
 
     # Determinar modelo efetivo para registro claro no histórico
@@ -445,27 +588,12 @@ def launch_worker_subprocess(
         "--engine", engine or "gemini",
         "--model", effective_model or ""
     ]
-
-    creation_flags = 0
-    if os.name == "nt":
-        creation_flags = subprocess.CREATE_NO_WINDOW
+    if mode == "full" and normalize_audio:
+        cmd.append("--normalize-audio")
 
     # Capturar stderr de inicialização (ex: ImportError / DLL CUDA) para nunca falhar silenciosamente
     boot_log = LOGS_DIR / f"job_{job_id}_boot.log"
-    boot_fh = open(boot_log, "w", encoding="utf-8", errors="replace")
-
-    worker_env = os.environ.copy()
-    existing_pp = worker_env.get("PYTHONPATH", "")
-    worker_env["PYTHONPATH"] = f"{PROJECT_ROOT}{os.pathsep}{existing_pp}" if existing_pp else str(PROJECT_ROOT)
-
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(PROJECT_ROOT),
-        env=worker_env,
-        stdout=subprocess.DEVNULL,
-        stderr=boot_fh,
-        creationflags=creation_flags
-    )
+    proc, boot_fh = _spawn_worker(cmd, boot_log)
     set_job_pid(job_id, proc.pid)
     ACTIVE_PROCESSES[video_id] = {
         "proc": proc,
@@ -492,7 +620,8 @@ def process_video(video_id: int, req: ProcessRequest):
         manual_game=req.manual_game or "",
         engine=req.engine or "gemini",
         custom_model=req.custom_model or "",
-        extra_context=req.extra_context or ""
+        extra_context=req.extra_context or "",
+        normalize_audio=bool(req.normalize_audio)
     )
 
 
@@ -562,22 +691,8 @@ def normalize_all_videos_audio():
         "--engine", "ffmpeg",
         "--model", "youtube_gold_v1"
     ]
-    creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     boot_log = LOGS_DIR / f"job_{job_id}_boot.log"
-    boot_fh = open(boot_log, "w", encoding="utf-8", errors="replace")
-
-    worker_env = os.environ.copy()
-    existing_pp = worker_env.get("PYTHONPATH", "")
-    worker_env["PYTHONPATH"] = f"{PROJECT_ROOT}{os.pathsep}{existing_pp}" if existing_pp else str(PROJECT_ROOT)
-
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(PROJECT_ROOT),
-        env=worker_env,
-        stdout=subprocess.DEVNULL,
-        stderr=boot_fh,
-        creationflags=creation_flags
-    )
+    proc, boot_fh = _spawn_worker(cmd, boot_log)
     set_job_pid(job_id, proc.pid)
     ACTIVE_PROCESSES[0] = {
         "proc": proc,
@@ -657,9 +772,6 @@ def reset_video(video_id: int):
             last_step="Cancelado manualmente pelo usuário",
             error_detail="Cancelado pelo usuário"
         )
-        temp_job_dir = TEMP_DIR / f"job_{cancelled_job_id}"
-        if temp_job_dir.exists():
-            shutil.rmtree(temp_job_dir, ignore_errors=True)
         if cancelled_mode == "normalize_audio":
             v_cur = get_video_by_id(video_id)
             if v_cur and v_cur.get("file_path"):
@@ -720,6 +832,7 @@ class RenameRequest(BaseModel):
 
 @app.post("/api/rename/{video_id}")
 def rename_video(video_id: int, req: RenameRequest):
+    _ensure_not_busy(video_id, "renomear este vídeo")
     video = get_video_by_id(video_id, include_data=False)
     if not video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
@@ -773,16 +886,22 @@ class CutRequest(BaseModel):
     end_sec: float
     title: str
     boost_discord: bool = True
+    keep_all_tracks: bool = False
 
 
 @app.post("/api/cut")
 def cut_highlight(req: CutRequest):
+    _ensure_not_busy(req.video_id, "exportar cortes deste vídeo")
     video = get_video_by_id(req.video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
 
     mkv_path = Path(video["file_path"])
-    res = export_lossless_highlight(mkv_path, req.start_sec, req.end_sec, req.title, req.boost_discord)
+    res = export_lossless_highlight(
+        mkv_path, req.start_sec, req.end_sec, req.title,
+        boost_discord=req.boost_discord,
+        keep_all_tracks=req.keep_all_tracks
+    )
     if not res["success"]:
         raise HTTPException(status_code=500, detail=res.get("error", "Erro ao exportar corte"))
     return res
@@ -794,11 +913,10 @@ class EmbedChaptersRequest(BaseModel):
 
 @app.post("/api/embed-chapters/{video_id}")
 def embed_chapters(video_id: int, req: EmbedChaptersRequest):
+    _ensure_not_busy(video_id, "embutir capítulos neste MKV")
     video = get_video_by_id(video_id)
     if not video or not video.get("data"):
         raise HTTPException(status_code=404, detail="Vídeo ou dados de capítulos não encontrados")
-    if video_id in ACTIVE_PROCESSES:
-        raise HTTPException(status_code=409, detail="Aguarde o processamento atual terminar antes de modificar o MKV.")
 
     mode = (req.mode or "both").strip().lower()
     if mode not in ("both", "highlights", "chapters"):
@@ -834,12 +952,12 @@ def preview_speaker_audio(video_id: int, speaker_tag: str):
     data = video["data"]
     samples = data.get("speaker_samples") or {}
     segments = data.get("segments") or []
-    is_matheus = speaker_tag.strip().lower() in (HOST_SPEAKER_NAME.strip().lower(), "matheus", "host")
+    is_host = speaker_tag.strip().lower() == HOST_SPEAKER_NAME.strip().lower()
 
     start_sec = None
     end_sec = None
 
-    if not is_matheus and speaker_tag in samples:
+    if not is_host and speaker_tag in samples:
         info = samples[speaker_tag] or {}
         if info.get("start") is not None and info.get("end") is not None:
             start_sec = float(info["start"])
@@ -863,7 +981,7 @@ def preview_speaker_audio(video_id: int, speaker_tag: str):
     preview_wav = preview_dir / f"v{video_id}_{int(video.get('mtime') or 0)}_{safe_tag}_{int(start_sec)}.wav"
 
     if not preview_wav.exists() or preview_wav.stat().st_size <= 1000:
-        ok = extract_speaker_preview_wav(mkv_path, start_sec, end_sec, preview_wav, is_matheus=is_matheus)
+        ok = extract_speaker_preview_wav(mkv_path, start_sec, end_sec, preview_wav, is_host=is_host)
         if not ok:
             raise HTTPException(status_code=500, detail="Não foi possível extrair o trecho de áudio do MKV.")
 
@@ -878,11 +996,11 @@ class SpeakerConfirmRequest(BaseModel):
 
 @app.post("/api/speakers/confirm")
 def confirm_speaker(req: SpeakerConfirmRequest):
-    from app.voice_bank import harvest_friend_voice_samples_from_mkv
+    _ensure_not_busy(req.video_id, "confirmar vozes neste vídeo")
 
     clean_name = resolve_canonical_friend_name(req.friend_name)
     if not clean_name:
-        raise HTTPException(status_code=400, detail="Informe o nome do amigo.")
+        raise HTTPException(status_code=400, detail="Informe um nome válido para o participante.")
 
     # Lock protege cliques simultâneos em vários cards sem sobrescrever confirmações vizinhas
     with SPEAKER_CONFIRM_LOCK:
@@ -910,11 +1028,16 @@ def confirm_speaker(req: SpeakerConfirmRequest):
         mkv_path = Path(video["file_path"])
         harvest_res: Dict[str, Any] = {}
         try:
-            harvest_res = harvest_friend_voice_samples_from_mkv(
-                mkv_path, segments, req.speaker_tag, clean_name
+            harvest_res = _run_voice_harvest_subprocess(
+                mode="friend",
+                mkv_path=mkv_path,
+                segments=segments,
+                speaker_tag=req.speaker_tag,
+                friend_name=clean_name,
+                max_samples=3
             )
         except Exception as e:
-            print(f"[VOZES] Erro no harvest manual: {e}")
+            print(f"[VOZES] Erro no harvest manual isolado: {e}")
 
         if not isinstance(ai_data.get("speaker_mapping"), dict):
             ai_data["speaker_mapping"] = {}
@@ -932,7 +1055,7 @@ def confirm_speaker(req: SpeakerConfirmRequest):
             segments,
             ai_data.get("hype_scores", []),
             manual_game=ai_data.get("main_game", video.get("game_name", "")),
-            known_friends=list_known_voice_names(exclude_matheus=False),
+            known_friends=list_known_voice_names(exclude_host=False),
             extra_context=video.get("session_context", "")
         )
         ai_data["youtube_description"] = build_youtube_description(ai_data)
@@ -955,9 +1078,8 @@ def confirm_speaker(req: SpeakerConfirmRequest):
 
 
 @app.post("/api/speakers/harvest-host/{video_id}")
-@app.post("/api/speakers/harvest-matheus/{video_id}")
-def harvest_matheus_samples(video_id: int):
-    from app.voice_bank import harvest_matheus_voice_samples_from_mkv
+def harvest_host_samples(video_id: int):
+    _ensure_not_busy(video_id, "salvar amostras vocais deste vídeo")
 
     with SPEAKER_CONFIRM_LOCK:
         video = get_video_by_id(video_id)
@@ -967,7 +1089,12 @@ def harvest_matheus_samples(video_id: int):
         segments = video["data"].get("segments", [])
         mkv_path = Path(video["file_path"])
         try:
-            harvest_res = harvest_matheus_voice_samples_from_mkv(mkv_path, segments, max_samples=3)
+            harvest_res = _run_voice_harvest_subprocess(
+                mode="host",
+                mkv_path=mkv_path,
+                segments=segments,
+                max_samples=3
+            )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro ao salvar amostras de {HOST_SPEAKER_NAME}: {e}")
 
@@ -990,6 +1117,7 @@ class ClaudeImportRequest(BaseModel):
 
 @app.post("/api/claude-import/{video_id}")
 def import_claude_response(video_id: int, req: ClaudeImportRequest):
+    _ensure_not_busy(video_id, "importar análise do Claude neste vídeo")
     video = get_video_by_id(video_id)
     if not video or "data" not in video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
@@ -1015,39 +1143,56 @@ def import_claude_response(video_id: int, req: ClaudeImportRequest):
 
 
 class SettingsModel(BaseModel):
-    google_api_key: Optional[str] = ""
-    nvidia_api_key: Optional[str] = ""
+    google_api_key: Optional[str] = None
+    nvidia_api_key: Optional[str] = None
+    clear_google_key: bool = False
+    clear_nvidia_key: bool = False
     ai_provider: Optional[str] = "gemini"
     google_model: Optional[str] = DEFAULT_GOOGLE_MODEL
     nvidia_model: Optional[str] = DEFAULT_NVIDIA_MODEL
 
 
-@app.get("/api/settings")
-def get_settings():
+def _build_safe_settings_response() -> Dict[str, Any]:
+    g_raw = get_setting("google_api_key", "")
+    n_raw = get_setting("nvidia_api_key", "")
     return {
-        "google_api_key": get_setting("google_api_key", ""),
-        "nvidia_api_key": get_setting("nvidia_api_key", ""),
+        "has_google_api_key": bool(g_raw),
+        "google_api_key_masked": _mask_secret(g_raw),
+        "has_nvidia_api_key": bool(n_raw),
+        "nvidia_api_key_masked": _mask_secret(n_raw),
         "ai_provider": get_setting("ai_provider", "gemini"),
         "google_model": get_setting("google_model", DEFAULT_GOOGLE_MODEL),
         "nvidia_model": get_setting("nvidia_model", DEFAULT_NVIDIA_MODEL)
     }
+
+
+@app.get("/api/settings")
+def get_settings():
+    return _build_safe_settings_response()
 
 
 @app.post("/api/settings")
 def update_settings(req: SettingsModel):
-    save_setting("google_api_key", req.google_api_key or "")
-    save_setting("nvidia_api_key", req.nvidia_api_key or "")
+    if req.clear_google_key:
+        save_setting("google_api_key", "")
+    elif req.google_api_key is not None:
+        g_in = req.google_api_key.strip()
+        if g_in and g_in != _mask_secret(get_setting("google_api_key", "")):
+            save_setting("google_api_key", g_in)
+
+    if req.clear_nvidia_key:
+        save_setting("nvidia_api_key", "")
+    elif req.nvidia_api_key is not None:
+        n_in = req.nvidia_api_key.strip()
+        if n_in and n_in != _mask_secret(get_setting("nvidia_api_key", "")):
+            save_setting("nvidia_api_key", n_in)
+
     save_setting("ai_provider", req.ai_provider or "gemini")
     save_setting("google_model", req.google_model or DEFAULT_GOOGLE_MODEL)
     save_setting("nvidia_model", req.nvidia_model or DEFAULT_NVIDIA_MODEL)
-    return {
-        "success": True,
-        "google_api_key": get_setting("google_api_key", ""),
-        "nvidia_api_key": get_setting("nvidia_api_key", ""),
-        "ai_provider": get_setting("ai_provider", "gemini"),
-        "google_model": get_setting("google_model", DEFAULT_GOOGLE_MODEL),
-        "nvidia_model": get_setting("nvidia_model", DEFAULT_NVIDIA_MODEL)
-    }
+    res = _build_safe_settings_response()
+    res["success"] = True
+    return res
 
 
 class TestKeyModel(BaseModel):

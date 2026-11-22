@@ -1,11 +1,13 @@
 import configparser
 import json
 import os
+import subprocess
 import sys
 import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import List
 from app.config import BASE_DIR
 
 
@@ -24,6 +26,33 @@ OBS_SCENES_DIR = OBS_BASE_DIR / "basic" / "scenes"
 OBS_USER_INI = OBS_BASE_DIR / "user.ini"
 OBS_BACKUP_DIR = BASE_DIR / "obs_backups"
 
+# Bitmasks padrão de 6 faixas do OBS Studio (bits 0..5 -> faixas 1..6)
+MIXER_TRACK_1_2 = 1 | 2    # 3  (Mix Geral + Microfone)
+MIXER_TRACK_1_3 = 1 | 4    # 5  (Mix Geral + Discord)
+MIXER_TRACK_1_4 = 1 | 8    # 9  (Mix Geral + Jogo)
+MIXER_TRACK_1_5 = 1 | 16   # 17 (Mix Geral + Desktop/Navegador)
+MIXER_TRACK_1_6 = 1 | 32   # 33 (Mix Geral + Soundpad)
+
+
+def _is_obs_running() -> bool:
+    try:
+        if os.name == "nt":
+            res = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH"],
+                capture_output=True, text=True, timeout=3
+            )
+            if "obs64.exe" in (res.stdout or "").lower():
+                return True
+            res32 = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq obs32.exe", "/NH"],
+                capture_output=True, text=True, timeout=3
+            )
+            return "obs32.exe" in (res32.stdout or "").lower()
+        res = subprocess.run(["pgrep", "-x", "obs"], capture_output=True, text=True, timeout=3)
+        return res.returncode == 0
+    except Exception:
+        return False
+
 
 def _make_obs_filter(name: str, fid: str, settings: dict) -> dict:
     return {
@@ -33,7 +62,7 @@ def _make_obs_filter(name: str, fid: str, settings: dict) -> dict:
         "id": fid,
         "versioned_id": fid,
         "settings": settings,
-        "mixers": 255,
+        "mixers": 63,
         "sync": 0,
         "flags": 0,
         "volume": 1.0,
@@ -50,6 +79,16 @@ def _make_obs_filter(name: str, fid: str, settings: dict) -> dict:
         "monitoring_type": 0,
         "private_settings": {}
     }
+
+
+def _merge_obs_filters(existing_filters: List[dict], desired_filters: List[dict]) -> List[dict]:
+    """Preserva filtros já configurados pelo usuário (ex: RNNoise, Noise Gate) e adiciona apenas os ausentes."""
+    merged = list(existing_filters or [])
+    existing_names = {str(f.get("name", "")).strip().lower() for f in merged if isinstance(f, dict)}
+    for f in desired_filters:
+        if str(f.get("name", "")).strip().lower() not in existing_names:
+            merged.append(f)
+    return merged
 
 
 def get_active_scene_file():
@@ -71,6 +110,12 @@ def get_active_scene_file():
 
 
 def apply_obs_audio_routing():
+    if _is_obs_running():
+        return {
+            "success": False,
+            "message": "OBS Studio está aberto. Feche o OBS antes de aplicar o roteamento para evitar que suas alterações sejam sobrescritas ao sair."
+        }
+
     scene_file = get_active_scene_file()
     if not scene_file or not scene_file.exists():
         return {"success": False, "message": "Nenhum arquivo de cenas ativo do OBS encontrado."}
@@ -88,9 +133,9 @@ def apply_obs_audio_routing():
     # 1. Dispositivos globais
     if "AuxAudioDevice1" in data and isinstance(data["AuxAudioDevice1"], dict):
         mic = data["AuxAudioDevice1"]
-        mic["mixers"] = 195  # Faixas 1 e 2
+        mic["mixers"] = MIXER_TRACK_1_2
         mic["volume"] = 1.0
-        mic["filters"] = [
+        mic["filters"] = _merge_obs_filters(mic.get("filters"), [
             _make_obs_filter("Compressor (Voz)", "compressor_filter", {
                 "ratio": 3.0,
                 "threshold": -22.0,
@@ -103,11 +148,11 @@ def apply_obs_audio_routing():
                 "threshold": -1.5,
                 "release_time": 60
             })
-        ]
+        ])
         modified = True
 
     if "DesktopAudioDevice1" in data and isinstance(data["DesktopAudioDevice1"], dict):
-        data["DesktopAudioDevice1"]["mixers"] = 209  # Faixas 1 e 5
+        data["DesktopAudioDevice1"]["mixers"] = MIXER_TRACK_1_5
         modified = True
 
     # 2. Fontes individuais
@@ -116,9 +161,9 @@ def apply_obs_audio_routing():
         name_low = name.lower()
 
         if name_low == "discord" or ("discord" in name_low and source.get("id") == "wasapi_process_output_capture"):
-            source["mixers"] = 197  # Faixas 1 e 3
+            source["mixers"] = MIXER_TRACK_1_3
             source["volume"] = 1.0
-            source["filters"] = [
+            source["filters"] = _merge_obs_filters(source.get("filters"), [
                 _make_obs_filter("Ganho (Discord)", "gain_filter", {"db": 20.0}),
                 _make_obs_filter("Compressor (Discord)", "compressor_filter", {
                     "ratio": 4.0,
@@ -132,17 +177,17 @@ def apply_obs_audio_routing():
                     "threshold": -1.5,
                     "release_time": 60
                 })
-            ]
+            ])
             modified = True
-        elif any(k in name_low for k in ["jogo", "overwatch", "forza", "captura de áudio de aplicativo"]):
-            source["mixers"] = 201  # Faixas 1 e 4 (evita vazar jogo na Faixa 2 Mic e Faixa 3 Discord)
+        elif any(k in name_low for k in ["jogo", "game", "overwatch", "forza", "captura de áudio de aplicativo"]):
+            source["mixers"] = MIXER_TRACK_1_4
             modified = True
         elif "soundpad" in name_low:
-            source["mixers"] = 225  # Faixas 1 e 6
+            source["mixers"] = MIXER_TRACK_1_6
             modified = True
-        elif any(k in name_low for k in ["janela", "navegador", "monitor"]):
+        elif any(k in name_low for k in ["janela", "navegador", "browser", "monitor"]):
             if source.get("mixers", 0) != 0:
-                source["mixers"] = 209  # Faixas 1 e 5
+                source["mixers"] = MIXER_TRACK_1_5
                 modified = True
 
     if modified:

@@ -53,7 +53,7 @@ SUAS TAREFAS:
 1. IDENTIFICAR NOMES DOS AMIGOS PELO CONTEXTO:
    - [{HOST_SPEAKER_NAME}] já está identificado.
 """ + """   - Descubra quem são as outras vozes ([Voz_1], [Voz_2], [Voz_3]...) prestando atenção quando eles se chamam pelo nome e na resposta imediata seguinte.
-   - REGRA DE GRAFIA: Se a lista [NOMES OFICIAIS DO GRUPO (BANCO DE VOZES)] for informada no início da transcrição, USE EXATAMENTE A GRAFIA OFICIAL dessa lista (ex: se existir "Kaio Felipe - Ganeta", escreva "Kaio Felipe - Ganeta" e NUNCA "Caio"). Só use um nome fora da lista se tiver certeza de que é outra pessoa.
+   - REGRA DE GRAFIA: Se a lista [NOMES OFICIAIS DO GRUPO (BANCO DE VOZES)] for informada no início da transcrição, USE EXATAMENTE A GRAFIA OFICIAL dessa lista (ex: se existir "João Pedro - JP", escreva "João Pedro - JP" e NUNCA "Joao"). Só use um nome fora da lista se tiver certeza de que é outra pessoa.
    - Se não houver evidência clara para uma voz, escreva exatamente "Desconhecido (sem pistas suficientes)".
 2. CONFIRMAR O JOGO PRINCIPAL DA SESSÃO:
    - Analise os diálogos e o Mosaico Visual (se fornecido). Identifique o JOGO PRINCIPAL (o mais jogado).
@@ -159,7 +159,7 @@ def _seconds_to_hhmmss(seconds: float) -> str:
 def extract_video_participants(ai_data: Dict[str, Any]) -> List[str]:
     """
     Extrai a lista de integrantes do vídeo presumidos pela detecção de áudio
-    (segmentos + mapeamento confirmado/deduzido), sempre colocando Matheus primeiro.
+    (segmentos + mapeamento confirmado/deduzido), sempre colocando o anfitrião primeiro.
     """
     found: List[str] = []
     seen_lower = set()
@@ -533,7 +533,7 @@ def format_transcript_for_ai(
     if known_friends is None:
         try:
             from app.voice_bank import list_known_voice_names
-            known_friends = list_known_voice_names(exclude_matheus=False)
+            known_friends = list_known_voice_names(exclude_host=False)
         except Exception:
             known_friends = []
 
@@ -789,6 +789,17 @@ def analyze_with_google_gemini_single(
     return data
 
 
+def _is_non_retryable_ai_error(err: Exception) -> bool:
+    """Retorna True para erros definitivos (chave inválida, permissão negada, conta bloqueada)."""
+    msg = str(err or "").lower()
+    fatal_tokens = (
+        "api_key_invalid", "invalid api key", "invalid_api_key",
+        "401", "403", "unauthorized", "permission_denied", "permission denied",
+        "authentication", "invalid x-api-key", "account suspended", "billing"
+    )
+    return any(tok in msg for tok in fatal_tokens)
+
+
 def analyze_with_google_gemini(
     api_key: str,
     transcript_text: str,
@@ -841,6 +852,9 @@ def analyze_with_google_gemini(
         )
     except Exception as e:
         print(f"[IA GEMINI] ❌ Falha no modelo '{model_name}': {e}", flush=True)
+        if _is_non_retryable_ai_error(e):
+            print("[IA GEMINI] ⛔ Erro definitivo de autenticação/permissão; fallback cancelado imediatamente.", flush=True)
+            raise e
         for fb in GOOGLE_FALLBACK_MODELS:
             if fb != model_name:
                 print(f"[IA GEMINI] 🔄 Tentando fallback automático para '{fb}'...", flush=True)
@@ -853,6 +867,8 @@ def analyze_with_google_gemini(
                     )
                 except Exception as fb_err:
                     print(f"[IA GEMINI] ❌ Fallback '{fb}' também falhou: {fb_err}", flush=True)
+                    if _is_non_retryable_ai_error(fb_err):
+                        raise fb_err
         raise e
 
 
@@ -1009,6 +1025,9 @@ def analyze_with_nvidia_nim(
         )
     except Exception as e:
         print(f"[IA NVIDIA] ❌ Falha no modelo '{model_name}': {e}", flush=True)
+        if _is_non_retryable_ai_error(e):
+            print("[IA NVIDIA] ⛔ Erro definitivo de autenticação/permissão; fallback cancelado imediatamente.", flush=True)
+            raise e
         for fb in NVIDIA_FALLBACK_MODELS:
             if fb != model_name:
                 print(f"[IA NVIDIA] 🔄 Tentando fallback automático para '{fb}'...", flush=True)
@@ -1021,6 +1040,8 @@ def analyze_with_nvidia_nim(
                     )
                 except Exception as fb_err:
                     print(f"[IA NVIDIA] ❌ Fallback '{fb}' também falhou: {fb_err}", flush=True)
+                    if _is_non_retryable_ai_error(fb_err):
+                        raise fb_err
         raise e
 
 

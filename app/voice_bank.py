@@ -29,10 +29,17 @@ def _normalize_name_key(name: str) -> str:
     return re.sub(r"\s+", " ", no_accents).strip().lower()
 
 
-def list_known_voice_names(exclude_matheus: bool = False) -> List[str]:
+WINDOWS_RESERVED_NAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
+
+def list_known_voice_names(exclude_host: bool = False) -> List[str]:
     """
     Retorna os nomes exatos das pastas já existentes em vozes_amigos/
-    para manter consistência de grafia (ex: 'Kaio Felipe - Ganeta' em vez de 'Caio').
+    para manter consistência de grafia (ex: 'João Pedro - JP' em vez de 'Joao').
     """
     if not VOICE_BANK_DIR.exists():
         return []
@@ -41,7 +48,7 @@ def list_known_voice_names(exclude_matheus: bool = False) -> List[str]:
     for d in sorted(VOICE_BANK_DIR.iterdir(), key=lambda p: p.name.lower()):
         if not d.is_dir():
             continue
-        if exclude_matheus and d.name.strip().lower() == host_low:
+        if exclude_host and d.name.strip().lower() == host_low:
             continue
         names.append(d.name)
     return names
@@ -51,21 +58,36 @@ def resolve_canonical_friend_name(raw_name: str) -> str:
     """
     Resolve o nome do amigo preservando EXATAMENTE a grafia da pasta já existente
     em vozes_amigos/ (comparação sem diferenciar maiúsculas/acentos).
-    Se for um nome novo, limpa espaços extras e remove caracteres inválidos para pasta Windows.
+    Bloqueia path traversal (., ..), caracteres inválidos e nomes reservados do Windows.
     """
-    cleaned = re.sub(r'[<>:"/\\|?*]+', "", str(raw_name or "")).strip()
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", str(raw_name or "")).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.strip(". ")
     if not cleaned:
         return ""
 
+    base_stem = cleaned.split(".")[0].strip().lower()
+    if base_stem in WINDOWS_RESERVED_NAMES:
+        return ""
+
     target_key = _normalize_name_key(cleaned)
-    for existing in list_known_voice_names(exclude_matheus=False):
+    for existing in list_known_voice_names(exclude_host=False):
         if _normalize_name_key(existing) == target_key:
             return existing
 
     # Se o usuário digitou tudo em minúsculas, capitaliza; caso contrário preserva grafia digitada
     if cleaned == cleaned.lower():
-        return cleaned.title()
+        cleaned = cleaned.title()
+
+    # Validação final contra path traversal
+    try:
+        base_resolved = VOICE_BANK_DIR.resolve()
+        cand_resolved = (VOICE_BANK_DIR / cleaned).resolve()
+        if cand_resolved.parent != base_resolved:
+            return ""
+    except Exception:
+        return ""
+
     return cleaned
 
 
@@ -74,7 +96,7 @@ def extract_speaker_preview_wav(
     start_sec: float,
     end_sec: float,
     out_wav: Path,
-    is_matheus: bool = False
+    is_host: bool = False
 ) -> bool:
     """
     Extrai um trecho curto (3s a 12s) direto do MKV com seek instantâneo do FFmpeg
@@ -84,7 +106,7 @@ def extract_speaker_preview_wav(
         return False
     out_wav.parent.mkdir(parents=True, exist_ok=True)
     stream_count, _ = get_audio_stream_count_and_duration(mkv_path)
-    if is_matheus:
+    if is_host:
         map_spec = "0:a:1" if stream_count >= 2 else "0:a:0"
     else:
         map_spec = "0:a:2" if stream_count >= 3 else "0:a:0"
@@ -101,7 +123,7 @@ def extract_speaker_preview_wav(
         "-map", map_spec,
         "-vn",
     ]
-    if not is_matheus:
+    if not is_host:
         cmd.extend(["-af", DISCORD_NORM_FILTER])
     cmd.extend(["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)])
 
@@ -185,14 +207,14 @@ def get_classifier():
     return _classifier
 
 
-def load_known_voice_profiles(exclude_matheus: bool = False) -> Dict[str, np.ndarray]:
+def load_known_voice_profiles(exclude_host: bool = False) -> Dict[str, np.ndarray]:
     profiles = {}
     if not VOICE_BANK_DIR.exists():
         return profiles
     host_low = HOST_SPEAKER_NAME.strip().lower()
     for friend_dir in VOICE_BANK_DIR.iterdir():
         if friend_dir.is_dir():
-            if exclude_matheus and friend_dir.name.strip().lower() == host_low:
+            if exclude_host and friend_dir.name.strip().lower() == host_low:
                 continue
             emb_file = friend_dir / "embedding.npy"
             if emb_file.exists():
@@ -476,7 +498,7 @@ def cluster_and_identify_speakers(
         }
 
     # Filtrar trechos mais estáveis (>= 1.5s) para determinar os centróides dos amigos reais,
-    # excluindo janelas com Soundpad ativo ou Caos de vozes (Matheus + Discord falando juntos)
+    # excluindo janelas com Soundpad ativo ou Caos de vozes (Anfitrião + Discord falando juntos)
     noisy_windows = set()
     if hype_scores:
         for h in hype_scores:
@@ -846,7 +868,7 @@ def harvest_friend_voice_samples_from_mkv(
     }
 
 
-def harvest_matheus_voice_samples(
+def harvest_host_voice_samples(
     mic_wav_path: Path,
     segments: List[Dict],
     max_samples: int = 3
@@ -864,7 +886,7 @@ def harvest_matheus_voice_samples(
     )
 
 
-def harvest_matheus_voice_samples_from_mkv(
+def harvest_host_voice_samples_from_mkv(
     mkv_path: Path,
     segments: List[Dict],
     max_samples: int = 3
@@ -891,7 +913,7 @@ def harvest_matheus_voice_samples_from_mkv(
     saved_files = []
     collected_embs = []
     batch_ts = int(time.time())
-    tmp_dir = Path(tempfile.mkdtemp(prefix="banido_harvest_matheus_"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="banido_harvest_host_"))
 
     try:
         for idx, seg in enumerate(selected):
@@ -933,3 +955,32 @@ def harvest_matheus_voice_samples_from_mkv(
         "samples_saved": saved_files,
         "profile_path": str(friend_dir / "embedding.npy")
     }
+
+
+def _cli_main():
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Subprocesso isolado de coleta de amostras vocais (SpeechBrain)")
+    parser.add_argument("--mode", choices=["friend", "host"], required=True)
+    parser.add_argument("--mkv", required=True)
+    parser.add_argument("--segments-json", required=True)
+    parser.add_argument("--speaker-tag", default="")
+    parser.add_argument("--friend-name", default="")
+    parser.add_argument("--max-samples", type=int, default=3)
+    args = parser.parse_args()
+
+    segments = json.loads(Path(args.segments_json).read_text(encoding="utf-8"))
+    if args.mode == "host":
+        res = harvest_host_voice_samples_from_mkv(
+            Path(args.mkv), segments, max_samples=args.max_samples
+        )
+    else:
+        res = harvest_friend_voice_samples_from_mkv(
+            Path(args.mkv), segments, args.speaker_tag, args.friend_name, max_samples=args.max_samples
+        )
+    print("BANIDO_HARVEST_JSON:" + json.dumps(res, ensure_ascii=False), flush=True)
+
+
+if __name__ == "__main__":
+    _cli_main()

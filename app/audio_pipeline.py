@@ -130,7 +130,7 @@ def extract_audio_tracks(
     if not has_isolated_mic and discord_wav.exists() and not mic_wav.exists():
         shutil.copyfile(str(discord_wav), str(mic_wav))
 
-    print(f"[FFMPEG] Extração de áudio concluída com sucesso!", flush=True)
+    print("[FFMPEG] Extração de áudio concluída com sucesso!", flush=True)
     return {
         "mic": mic_wav,
         "discord": discord_wav,
@@ -179,7 +179,7 @@ def analyze_audio_dynamics(
         discord_rms = np.zeros(1, dtype=np.float32)
 
     # Em gravações antigas de 2 faixas onde ambas carregam o mesmo áudio duplicado,
-    # desativa o isolamento físico para evitar falso-positivo na identificação de [Matheus].
+    # desativa o isolamento físico para evitar falso-positivo na identificação do anfitrião.
     if has_isolated_mic and stream_count == 2 and num_frames >= 20:
         if float(np.std(mic_rms)) > 0.1 and float(np.std(discord_rms)) > 0.1:
             corr = float(np.corrcoef(mic_rms, discord_rms)[0, 1])
@@ -232,7 +232,7 @@ def analyze_audio_dynamics(
             m_burst = 0.0
         burst_score = min(30.0, max(d_burst, m_burst) * 45.0)
 
-        # 3. Caos simultâneo: Matheus + Discord ativos na mesma janela (0-20)
+        # 3. Caos simultâneo: Anfitrião + Discord ativos na mesma janela (0-20)
         f_start = w * frames_per_5s
         f_end = min(len(mic_rms), f_start + frames_per_5s)
         both_active = 0
@@ -281,7 +281,7 @@ def analyze_audio_dynamics(
     }
 
 
-def is_matheus_speaking(start_sec: float, end_sec: float, dynamics: Dict[str, Any]) -> bool:
+def is_host_speaking(start_sec: float, end_sec: float, dynamics: Dict[str, Any]) -> bool:
     if not dynamics.get("has_isolated_mic", True):
         return False
 
@@ -312,11 +312,11 @@ def is_matheus_speaking(start_sec: float, end_sec: float, dynamics: Dict[str, An
     if m_p75 <= -46.0 or m_active < 0.20:
         return False
 
-    # Caso 1: Só o microfone do Matheus está claramente ativo neste trecho
+    # Caso 1: Só o microfone do anfitrião está claramente ativo neste trecho
     if m_active >= 0.25 and d_active < 0.15:
         return True
 
-    # Caso 2: Ambos têm sinal; Matheus vence se domina em tempo ativo ou energia
+    # Caso 2: Ambos têm sinal; o anfitrião vence se domina em tempo ativo ou energia
     if m_active >= d_active * 1.15 and m_p75 >= d_p75 - 4.0:
         return True
     if m_p75 >= d_p75 - 1.5 and m_active >= d_active * 0.75:
@@ -346,7 +346,7 @@ def build_balanced_mix_array(
     has_isolated_mic: bool = True
 ) -> np.ndarray:
     """
-    Combina faixa 2 (Matheus) + faixa 3 (Discord normalizado) em memória (float32)
+    Combina faixa 2 (microfone do anfitrião) + faixa 3 (Discord normalizado) em memória (float32)
     com soft-limiter suave em 0.95 (equivalente a amix + alimiter=0.95, leva <0.02s/bloco!).
     """
     if not has_isolated_mic or mic_audio is None or len(mic_audio) == 0:

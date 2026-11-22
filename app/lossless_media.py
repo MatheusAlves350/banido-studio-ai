@@ -8,14 +8,14 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from xml.sax.saxutils import escape as xml_escape
-from app.config import CLIPS_DIR, OBS_RECORDINGS_DIR
-from app.audio_pipeline import DISCORD_NORM_FILTER, get_audio_stream_count_and_duration, parse_time_to_seconds
+from app.config import CLIPS_DIR
+from app.audio_pipeline import get_audio_stream_count_and_duration, parse_time_to_seconds
 
 YOUTUBE_AUDIO_NORM_TAG = "youtube_gold_v1"
 
 # Cadeia calibrada nos MKVs reais do OBS (aprovada em testes A/B):
 # - Alvo: -15.5 a -16.6 LUFS (padrão YouTube -14 LUFS sem redução automática), True Peak <= -1.0 dBTP
-# - Equilíbrio Mic (Matheus) vs Discord: < 1 dB de diferença | Silêncio nas pausas ~ -78 dB (zero chiado)
+# - Equilíbrio Mic (Anfitrião) vs Discord: < 1 dB de diferença | Silêncio nas pausas ~ -78 dB (zero chiado)
 # - Estéreo 48 kHz AAC 320 kbps com channel coupling (c=1)
 YOUTUBE_GOLD_FILTER_MULTI = (
     "[0:a:0]highpass=f=75,"
@@ -87,6 +87,21 @@ def sanitize_filename(name: str, max_len: int = 120) -> str:
     return clean[:max_len]
 
 
+def _unique_path(path: Path) -> Path:
+    """Evita sobrescrita silenciosa acrescentando sufixo ' (2)', ' (3)', ... caso o arquivo já exista."""
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    counter = 2
+    while True:
+        cand = parent / f"{stem} ({counter}){suffix}"
+        if not cand.exists():
+            return cand
+        counter += 1
+
+
 def rename_mkv_and_srt(original_mkv_path: Path, title: str, game_name: str = "") -> Dict[str, Any]:
     if not original_mkv_path.exists():
         return {"success": False, "error": f"Arquivo não encontrado: {original_mkv_path}"}
@@ -95,15 +110,21 @@ def rename_mkv_and_srt(original_mkv_path: Path, title: str, game_name: str = "")
     base_name = original_mkv_path.stem
 
     match_date = re.match(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}-\d{2}-\d{2})", base_name)
-    prefix_date = match_date.group(1) if match_date else base_name
+    prefix_date = match_date.group(1) if match_date else ""
 
     clean_title = sanitize_filename(title)
     clean_game = sanitize_filename(game_name) if game_name else ""
     if clean_game and clean_game.lower() not in clean_title.lower():
         clean_title = f"{clean_game} - {clean_title}"
 
-    new_stem = f"{prefix_date} - {clean_title}"
+    if prefix_date:
+        new_stem = f"{prefix_date} - {clean_title}" if clean_title else prefix_date
+    else:
+        new_stem = clean_title or base_name
+
     new_mkv_path = parent_dir / f"{new_stem}.mkv"
+    if new_mkv_path != original_mkv_path and new_mkv_path.exists():
+        new_mkv_path = _unique_path(new_mkv_path)
 
     try:
         if original_mkv_path != new_mkv_path:
@@ -116,6 +137,8 @@ def rename_mkv_and_srt(original_mkv_path: Path, title: str, game_name: str = "")
     new_srt = new_mkv_path.with_suffix(".srt")
     if old_srt.exists() and old_srt != new_srt:
         try:
+            if new_srt.exists():
+                new_srt = _unique_path(new_srt)
             old_srt.rename(new_srt)
             print(f"Legenda renomeada para: {new_srt.name}")
         except Exception as e:
@@ -135,7 +158,8 @@ def export_lossless_highlight(
     start_sec: float,
     end_sec: float,
     clip_title: str,
-    boost_discord: bool = True
+    boost_discord: bool = True,
+    keep_all_tracks: bool = False
 ) -> Dict[str, Any]:
     CLIPS_DIR.mkdir(parents=True, exist_ok=True)
     clean_clip_name = sanitize_filename(clip_title, max_len=80) or "Highlight"
@@ -143,7 +167,7 @@ def export_lossless_highlight(
     # Evitar estouro do limite MAX_PATH (260 chars) no Windows usando prefixo compacto do vídeo
     match_date = re.match(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}-\d{2}-\d{2})", mkv_path.stem)
     source_prefix = match_date.group(1) if match_date else sanitize_filename(mkv_path.stem, max_len=45)
-    output_clip_path = CLIPS_DIR / f"{source_prefix} - Corte - {clean_clip_name}.mkv"
+    output_clip_path = _unique_path(CLIPS_DIR / f"{source_prefix} - Corte - {clean_clip_name}.mkv")
 
     dur = max(1.0, float(end_sec) - float(start_sec))
     start_sec = max(0.0, float(start_sec))
@@ -164,7 +188,7 @@ def export_lossless_highlight(
             "-i", str(mkv_path),
             "-t", f"{dur:.2f}",
             "-map", "0:v:0",
-            "-map", "0:a:0",
+            "-map", "0:a" if keep_all_tracks else "0:a:0",
             "-c:v", "copy",
             "-c:a", "copy",
             "-avoid_negative_ts", "make_zero",
@@ -180,11 +204,18 @@ def export_lossless_highlight(
             "-filter_complex", YOUTUBE_GOLD_FILTER_MULTI,
             "-map", "0:v:0",
             "-map", "[aout]",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-ac", "2",
-            "-avoid_negative_ts", "make_zero",
-            str(output_clip_path)
         ]
+        if keep_all_tracks:
+            for a_idx in range(1, stream_count):
+                cmd.extend(["-map", f"0:a:{a_idx}"])
+        cmd.extend([
+            "-c:v", "copy",
+            "-c:a:0", "aac", "-b:a:0", "320k", "-ar:a:0", "48000", "-ac:a:0", "2",
+        ])
+        if keep_all_tracks:
+            for a_idx in range(1, stream_count):
+                cmd.extend([f"-c:a:{a_idx}", "copy"])
+        cmd.extend(["-avoid_negative_ts", "make_zero", str(output_clip_path)])
     else:
         cmd = [
             "ffmpeg", "-y",
@@ -194,11 +225,18 @@ def export_lossless_highlight(
             "-filter_complex", YOUTUBE_GOLD_FILTER_SINGLE,
             "-map", "0:v:0",
             "-map", "[aout]",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-ac", "2",
-            "-avoid_negative_ts", "make_zero",
-            str(output_clip_path)
         ]
+        if keep_all_tracks and stream_count > 1:
+            for a_idx in range(1, stream_count):
+                cmd.extend(["-map", f"0:a:{a_idx}"])
+        cmd.extend([
+            "-c:v", "copy",
+            "-c:a:0", "aac", "-b:a:0", "320k", "-ar:a:0", "48000", "-ac:a:0", "2",
+        ])
+        if keep_all_tracks and stream_count > 1:
+            for a_idx in range(1, stream_count):
+                cmd.extend([f"-c:a:{a_idx}", "copy"])
+        cmd.extend(["-avoid_negative_ts", "make_zero", str(output_clip_path)])
 
     try:
         subprocess.run(cmd, capture_output=True, check=True)

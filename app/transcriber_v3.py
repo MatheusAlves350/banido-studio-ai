@@ -13,7 +13,7 @@ from app.config import (
     WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_LANGUAGE
 )
 from app.audio_pipeline import (
-    is_matheus_speaking, extract_audio_tracks, analyze_audio_dynamics,
+    is_host_speaking, extract_audio_tracks, analyze_audio_dynamics,
     get_audio_stream_count_and_duration, compute_rms_100ms,
     build_balanced_mix_array, SegmentedAudioExtractor, analyze_segmented_hype
 )
@@ -163,13 +163,13 @@ def get_whisper_model():
 def create_balanced_mix_audio(mic_wav: Path, discord_wav: Path, output_mix_wav: Path, has_isolated_mic: bool = True):
     """
     Cria uma mixagem mono equilibrada para garantir que o Whisper escute tanto
-    o microfone do Matheus quanto as vozes amplificadas do Discord com nitidez perfeita.
+    o microfone do anfitrião quanto as vozes amplificadas do Discord com nitidez perfeita.
     """
     if not has_isolated_mic:
         shutil.copyfile(str(discord_wav), str(output_mix_wav))
         return
 
-    print("[FFMPEG] Gerando mixagem balanceada (Matheus + Discord normalizado) para o Whisper...", flush=True)
+    print(f"[FFMPEG] Gerando mixagem balanceada ({HOST_SPEAKER_NAME} + Discord normalizado) para o Whisper...", flush=True)
     cmd = [
         "ffmpeg", "-y",
         "-i", str(mic_wav),
@@ -278,7 +278,7 @@ def build_whisper_initial_prompt(manual_game: str = "", extra_context: str = "")
     """
     parts = ["Conversa informal, engraçada e descontraída entre amigos jogando no Discord."]
     try:
-        known = list_known_voice_names(exclude_matheus=False)
+        known = list_known_voice_names(exclude_host=False)
     except Exception:
         known = []
 
@@ -350,7 +350,7 @@ def _refine_whisper_segment(
     Usa `word_timestamps` do Whisper large-v3 para:
     1. Quebrar falas muito longas (> 8.5s ou > 92 chars) em pausas naturais ou pontuação,
        deixando a legenda .SRT no padrão limpo de leitura do YouTube.
-    2. Separar trocas rápidas de locutor (Matheus <-> Discord) dentro do mesmo segmento
+    2. Separar trocas rápidas de locutor (Anfitrião <-> Discord) dentro do mesmo segmento
        quando o microfone isolado está ativo.
     Não salva arrays `words` no SQLite para manter o banco leve.
     """
@@ -367,7 +367,7 @@ def _refine_whisper_segment(
     def _eval_speaker(loc_s: float, loc_e: float) -> str:
         t_s = loc_s if use_local_dynamics else (loc_s + chunk_offset_sec)
         t_e = loc_e if use_local_dynamics else (loc_e + chunk_offset_sec)
-        return HOST_SPEAKER_NAME if is_matheus_speaking(t_s, t_e, dynamics) else "Discord"
+        return HOST_SPEAKER_NAME if is_host_speaking(t_s, t_e, dynamics) else "Discord"
 
     # Se for curto e não tiver palavras suficientes para quebrar, retorna direto
     if len(words) < 3 or (seg_dur <= max_dur_sec and len(full_text) <= max_chars and not has_iso):
@@ -606,7 +606,7 @@ def run_transcription_pipeline(
 
     # Tentar retomar checkpoint salvo se for o mesmo vídeo e mesma divisão de blocos
     raw_segments: List[Dict[str, Any]] = []
-    matheus_count = 0
+    host_count = 0
     discord_count = 0
     start_chunk_idx = 1
 
@@ -617,7 +617,7 @@ def run_transcription_pipeline(
                 last_done = int(ck.get("last_completed_chunk", 0))
                 if 0 < last_done <= num_chunks:
                     raw_segments = ck.get("raw_segments", [])
-                    matheus_count = int(ck.get("matheus_count", 0))
+                    host_count = int(ck.get("host_count", 0))
                     discord_count = int(ck.get("discord_count", 0))
                     start_chunk_idx = last_done + 1
                     print(
@@ -696,7 +696,7 @@ def run_transcription_pipeline(
                 for seg_dict in refined_segs:
                     seg_counter += 1
                     if seg_dict["speaker"] == HOST_SPEAKER_NAME:
-                        matheus_count += 1
+                        host_count += 1
                     else:
                         discord_count += 1
                     raw_segments.append(seg_dict)
@@ -729,7 +729,7 @@ def run_transcription_pipeline(
                     "chunk_bounds": [list(b) for b in chunk_bounds],
                     "last_completed_chunk": c_idx,
                     "raw_segments": raw_segments,
-                    "matheus_count": matheus_count,
+                    "host_count": host_count,
                     "discord_count": discord_count
                 }, ensure_ascii=False), encoding="utf-8")
                 os.replace(str(ckpt_tmp), str(ckpt_path))
@@ -740,7 +740,7 @@ def run_transcription_pipeline(
         speed_factor = total_duration / max(0.1, trans_elapsed)
         print(
             f"[WHISPER] Transcrição finalizada em {trans_elapsed:.1f}s ({speed_factor:.1f}x tempo real) | "
-            f"Total: {len(raw_segments)} falas ({HOST_SPEAKER_NAME}: {matheus_count}, Discord: {discord_count})",
+            f"Total: {len(raw_segments)} falas ({HOST_SPEAKER_NAME}: {host_count}, Discord: {discord_count})",
             flush=True
         )
 
@@ -758,7 +758,7 @@ def run_transcription_pipeline(
         progress_callback("Agrupando timbres de voz no Discord (SpeechBrain ECAPA-TDNN)...", 0.80)
 
     # 5. Agrupamento de vozes dos amigos no Discord (PyTorch só é carregado agora!)
-    known_profiles = load_known_voice_profiles(exclude_matheus=has_isolated_mic)
+    known_profiles = load_known_voice_profiles(exclude_host=has_isolated_mic)
     print(f"[VOZES] Perfis já conhecidos em vozes_amigos/: {list(known_profiles.keys()) or 'Nenhum ainda'}", flush=True)
     enriched_segments, speaker_samples = cluster_and_identify_speakers(
         discord_wav, raw_segments, known_profiles,
@@ -873,7 +873,7 @@ def _run_parallel_segmented_pipeline(
 
         # Retomar checkpoint de blocos Whisper já concluídos, se houver
         raw_segments: List[Dict[str, Any]] = []
-        matheus_count = 0
+        host_count = 0
         discord_count = 0
         completed_chunks = 0
         saved_carryover_sec = 0.0
@@ -885,7 +885,7 @@ def _run_parallel_segmented_pipeline(
                     last_done = int(ck.get("completed_chunks", 0))
                     if last_done > 0:
                         raw_segments = ck.get("raw_segments", [])
-                        matheus_count = int(ck.get("matheus_count", 0))
+                        host_count = int(ck.get("host_count", 0))
                         discord_count = int(ck.get("discord_count", 0))
                         completed_chunks = last_done
                         saved_carryover_sec = float(ck.get("carryover_sec", 0.0) or 0.0)
@@ -1089,7 +1089,7 @@ def _run_parallel_segmented_pipeline(
                 for seg_dict in refined_segs:
                     seg_counter += 1
                     if seg_dict["speaker"] == HOST_SPEAKER_NAME:
-                        matheus_count += 1
+                        host_count += 1
                     else:
                         discord_count += 1
                     raw_segments.append(seg_dict)
@@ -1122,7 +1122,7 @@ def _run_parallel_segmented_pipeline(
                     "completed_chunks": completed_chunks,
                     "carryover_sec": round(next_carry_sec, 4),
                     "raw_segments": raw_segments,
-                    "matheus_count": matheus_count,
+                    "host_count": host_count,
                     "discord_count": discord_count
                 }, ensure_ascii=False), encoding="utf-8")
                 os.replace(str(ckpt_tmp), str(ckpt_path))
@@ -1157,7 +1157,7 @@ def _run_parallel_segmented_pipeline(
                 for seg_dict in _refine_whisper_segment(s, eff_offset_sec, block_dynamics, use_local_dynamics=True):
                     seg_counter += 1
                     if seg_dict["speaker"] == HOST_SPEAKER_NAME:
-                        matheus_count += 1
+                        host_count += 1
                     else:
                         discord_count += 1
                     raw_segments.append(seg_dict)
@@ -1187,7 +1187,7 @@ def _run_parallel_segmented_pipeline(
             speed_factor = total_duration / max(0.1, trans_elapsed)
             print(
                 f"[WHISPER] Transcrição finalizada em {trans_elapsed:.1f}s ({speed_factor:.1f}x tempo real) | "
-                f"Total: {len(raw_segments)} falas ({HOST_SPEAKER_NAME}: {matheus_count}, Discord: {discord_count})",
+                f"Total: {len(raw_segments)} falas ({HOST_SPEAKER_NAME}: {host_count}, Discord: {discord_count})",
                 flush=True
             )
     finally:
@@ -1219,7 +1219,7 @@ def _run_parallel_segmented_pipeline(
         progress_callback("Agrupando timbres de voz no Discord (SpeechBrain ECAPA-TDNN)...", 0.80)
 
     # Identificação de vozes dos amigos lendo bloco a bloco do SSD (~20-40 MB RAM!)
-    known_profiles = load_known_voice_profiles(exclude_matheus=has_isolated_mic)
+    known_profiles = load_known_voice_profiles(exclude_host=has_isolated_mic)
     print(f"[VOZES] Perfis já conhecidos em vozes_amigos/: {list(known_profiles.keys()) or 'Nenhum ainda'}", flush=True)
     enriched_segments, speaker_samples = cluster_and_identify_speakers(
         seg_dir, raw_segments, known_profiles,

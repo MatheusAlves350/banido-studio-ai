@@ -39,7 +39,10 @@ def _resolve_env_path(env_var: str, default_path: Path) -> Path:
     raw = (os.getenv(env_var) or "").strip()
     if not raw:
         return default_path.resolve()
-    return Path(raw).expanduser().resolve()
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = PROJECT_ROOT / p
+    return p.resolve()
 
 
 # Identidade, rede e Whisper configuráveis por instância
@@ -50,6 +53,22 @@ try:
     SERVER_PORT = int((os.getenv("BANIDO_PORT") or "8765").strip())
 except ValueError:
     SERVER_PORT = 8765
+
+
+def _build_allowed_hosts() -> list:
+    extra = [h.strip() for h in (os.getenv("BANIDO_ALLOWED_HOSTS") or "").split(",") if h.strip()]
+    if "*" in extra or SERVER_HOST == "0.0.0.0":
+        return ["*"]
+    hosts = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+    if SERVER_HOST not in hosts:
+        hosts.append(SERVER_HOST)
+    for h in extra:
+        if h not in hosts:
+            hosts.append(h)
+    return hosts
+
+
+ALLOWED_HOSTS = _build_allowed_hosts()
 
 WHISPER_MODEL_SIZE = (os.getenv("BANIDO_WHISPER_MODEL") or "large-v3").strip() or "large-v3"
 WHISPER_DEVICE = (os.getenv("BANIDO_WHISPER_DEVICE") or "auto").strip().lower() or "auto"
