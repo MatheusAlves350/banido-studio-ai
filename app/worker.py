@@ -19,7 +19,12 @@ from app.database import (
     save_video_transcription_checkpoint, has_video_data, get_setting,
     set_video_audio_normalized, reset_video_status, update_video_game_and_context
 )
-from app.lossless_media import normalize_mkv_audio_lossless, inspect_mkv_audio_norm
+from app.lossless_media import (
+    normalize_mkv_audio_lossless,
+    inspect_mkv_audio_norm,
+    prepare_single_pass_norm,
+    finalize_normalized_mkv,
+)
 from app.mosaic_generator import generate_video_mosaic
 from app.transcriber_v3 import run_transcription_pipeline
 from app.voice_bank import list_known_voice_names
@@ -283,6 +288,10 @@ def run_worker(
                 save_default_context=bool(manual_game.strip() and extra_context.strip())
             )
 
+        single_pass_prep = None
+        single_pass_norm_mkv = None
+        single_pass_t0 = None
+
         if mode == "ai_only":
             existing_data = video.get("data") or {}
             segments = existing_data.get("segments") or []
@@ -304,18 +313,42 @@ def run_worker(
                 print(f"[MOSAICO] Extraindo 16 frames HD distribuídos de '{mkv_path.name}'...", flush=True)
                 generate_video_mosaic(mkv_path, mosaic_jpg)
 
-            # 2. Transcrição Completa + Telemetria + Vozes
+            # 1.5 Preparar Passada Única de normalização de áudio (evita reler/reprocessar o MKV no final!)
+            norm_output_target = None
+            if normalize_audio:
+                single_pass_prep = prepare_single_pass_norm(mkv_path)
+                if single_pass_prep.get("should_run"):
+                    norm_output_target = single_pass_prep["temp_mkv"]
+                    single_pass_t0 = time.time()
+                    print(
+                        "[AUDIO NORM] ⚡ Passada Única ativada: o MKV YouTube Gold será gerado "
+                        "EM PARALELO durante a extração do Whisper (zero reprocessamento no final)!",
+                        flush=True
+                    )
+                elif single_pass_prep.get("already_normalized"):
+                    print("[AUDIO NORM] ✅ Vídeo já está normalizado (YouTube Gold); etapa de áudio será pulada.", flush=True)
+                else:
+                    print(
+                        f"[AUDIO NORM] ⚠️ Passada Única indisponível ({single_pass_prep.get('error', 'motivo desconhecido')}); "
+                        f"seguindo com a transcrição normalmente.",
+                        flush=True
+                    )
+
+            # 2. Transcrição Completa + Telemetria + Vozes (+ Normalização em Passada Única se ativa)
             temp_job_dir.mkdir(parents=True, exist_ok=True)
             trans_res = run_transcription_pipeline(
                 mkv_path, temp_job_dir, srt_path,
                 progress_callback=report,
                 manual_game=effective_game,
-                extra_context=effective_context
+                extra_context=effective_context,
+                norm_output_mkv=norm_output_target
             )
             segments = trans_res["segments"]
             hype_scores = trans_res["hype_scores"]
             speaker_samples = trans_res["speaker_samples"]
             duration_sec = trans_res["duration"]
+            if trans_res.get("single_pass_norm_mkv"):
+                single_pass_norm_mkv = Path(trans_res["single_pass_norm_mkv"])
 
         # 3. Preparar prompt e SALVAR CHECKPOINT NO SQLITE ANTES DA API DA IA
         known_friends = list_known_voice_names(exclude_host=False)
@@ -438,30 +471,64 @@ def run_worker(
 
         audio_norm_suffix = ""
         if mode == "full" and normalize_audio:
-            print("\n[AUDIO NORM] Etapa opcional ativada: iniciando normalização YouTube Gold (vídeo 100% lossless)...", flush=True)
-            report("Etapa Opcional: Normalizando áudio YouTube Gold (vídeo 100% lossless)...", 0.95)
-
             def _norm_cb(sub_msg: str, sub_pct: float):
                 mapped_pct = 0.95 + min(0.04, float(sub_pct) * 0.04)
                 report(f"Áudio YouTube Gold: {sub_msg}", mapped_pct)
 
-            norm_res = normalize_mkv_audio_lossless(mkv_path, progress_callback=_norm_cb, force=False)
-            if norm_res.get("success"):
-                set_video_audio_normalized(
-                    video_id,
-                    normalized=True,
-                    size_gb=norm_res.get("size_gb"),
-                    mtime=norm_res.get("mtime")
+            if single_pass_prep and single_pass_prep.get("already_normalized"):
+                set_video_audio_normalized(video_id, normalized=True)
+                print("[AUDIO NORM] ✅ Vídeo já estava normalizado (YouTube Gold); etapa pulada automaticamente.", flush=True)
+                audio_norm_suffix = " | Áudio já normalizado"
+            elif single_pass_norm_mkv and single_pass_norm_mkv.exists():
+                print("\n[AUDIO NORM] ⚡ Passada Única concluída em paralelo! Validando e substituindo MKV instantaneamente...", flush=True)
+                report("Validando e aplicando MKV YouTube Gold (Passada Única)...", 0.96)
+                norm_res = finalize_normalized_mkv(
+                    mkv_path=mkv_path,
+                    temp_mkv=single_pass_norm_mkv,
+                    orig_info=single_pass_prep.get("orig_info") if single_pass_prep else None,
+                    orig_size=single_pass_prep.get("orig_size") if single_pass_prep else None,
+                    orig_atime=single_pass_prep.get("orig_atime") if single_pass_prep else None,
+                    orig_mtime=single_pass_prep.get("orig_mtime") if single_pass_prep else None,
+                    t_start=single_pass_t0,
+                    progress_callback=_norm_cb
                 )
-                if norm_res.get("skipped"):
-                    print("[AUDIO NORM] ✅ Vídeo já estava normalizado (YouTube Gold); etapa pulada automaticamente.", flush=True)
-                    audio_norm_suffix = " | Áudio já normalizado"
+                if norm_res.get("success"):
+                    set_video_audio_normalized(
+                        video_id,
+                        normalized=True,
+                        size_gb=norm_res.get("size_gb"),
+                        mtime=norm_res.get("mtime")
+                    )
+                    audio_norm_suffix = " | Áudio YouTube Gold (Passada Única)"
                 else:
-                    audio_norm_suffix = " | Áudio YouTube Gold normalizado"
-            else:
-                norm_err = norm_res.get("error", "Falha desconhecida")
-                print(f"[AUDIO NORM] ⚠️ Normalização opcional não concluída (transcrição e IA preservadas): {norm_err}", flush=True)
+                    norm_err = norm_res.get("error", "Falha desconhecida")
+                    print(f"[AUDIO NORM] ⚠️ Validação da Passada Única falhou (transcrição e IA preservadas): {norm_err}", flush=True)
+                    audio_norm_suffix = f" | Aviso áudio: {norm_err[:80]}"
+            elif single_pass_prep and not single_pass_prep.get("should_run") and single_pass_prep.get("error"):
+                norm_err = single_pass_prep["error"]
+                print(f"[AUDIO NORM] ⚠️ Normalização pulada (transcrição e IA preservadas): {norm_err}", flush=True)
                 audio_norm_suffix = f" | Aviso áudio: {norm_err[:80]}"
+            else:
+                # Fallback (ex.: transcrição reaproveitada de checkpoint anterior onde o FFmpeg não rodou novamente)
+                print("\n[AUDIO NORM] Transcrição reaproveitada de checkpoint; executando normalização YouTube Gold (vídeo 100% lossless)...", flush=True)
+                report("Etapa Opcional: Normalizando áudio YouTube Gold (vídeo 100% lossless)...", 0.95)
+                norm_res = normalize_mkv_audio_lossless(mkv_path, progress_callback=_norm_cb, force=False)
+                if norm_res.get("success"):
+                    set_video_audio_normalized(
+                        video_id,
+                        normalized=True,
+                        size_gb=norm_res.get("size_gb"),
+                        mtime=norm_res.get("mtime")
+                    )
+                    if norm_res.get("skipped"):
+                        print("[AUDIO NORM] ✅ Vídeo já estava normalizado (YouTube Gold); etapa pulada automaticamente.", flush=True)
+                        audio_norm_suffix = " | Áudio já normalizado"
+                    else:
+                        audio_norm_suffix = " | Áudio YouTube Gold normalizado"
+                else:
+                    norm_err = norm_res.get("error", "Falha desconhecida")
+                    print(f"[AUDIO NORM] ⚠️ Normalização opcional não concluída (transcrição e IA preservadas): {norm_err}", flush=True)
+                    audio_norm_suffix = f" | Aviso áudio: {norm_err[:80]}"
 
         total_elapsed = time.time() - t_start
         done_msg = f"Concluído em {int(total_elapsed // 60)}m {int(total_elapsed % 60)}s!{audio_norm_suffix}"

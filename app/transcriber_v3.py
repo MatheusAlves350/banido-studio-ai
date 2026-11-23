@@ -488,7 +488,8 @@ def run_transcription_pipeline(
     output_srt_path: Path,
     progress_callback: Optional[Callable[[str, float], None]] = None,
     manual_game: str = "",
-    extra_context: str = ""
+    extra_context: str = "",
+    norm_output_mkv: Optional[Path] = None
 ) -> Dict[str, Any]:
     temp_dir.mkdir(parents=True, exist_ok=True)
     stat = mkv_path.stat()
@@ -545,7 +546,8 @@ def run_transcription_pipeline(
             output_srt_path=output_srt_path,
             progress_callback=progress_callback,
             manual_game=manual_game,
-            extra_context=extra_context
+            extra_context=extra_context,
+            norm_output_mkv=norm_output_mkv
         )
 
     # 1. Caminho legado (apenas para retomar checkpoints antigos já extraídos como WAV único)
@@ -809,11 +811,13 @@ def _run_parallel_segmented_pipeline(
     segment_sec: int = 300,
     prebuffer_chunks: int = 3,
     manual_game: str = "",
-    extra_context: str = ""
+    extra_context: str = "",
+    norm_output_mkv: Optional[Path] = None
 ) -> Dict[str, Any]:
     """
     Pipeline Paralelo em Diretório Temporário (preferencialmente SSD separado do disco de gravações):
     1. FFmpeg extrai blocos de 5 min no diretório temporário configurado (~5x mais rápido em SSD!).
+       Quando `norm_output_mkv` é informado, gera o MKV normalizado YouTube Gold na MESMA leitura (Passada Única!).
     2. Aguarda pré-buffer de segurança (3 blocos = 15 min de áudio fechados em disco).
     3. Aciona Whisper large-v3 Full (beam_size=5, 100% máxima qualidade) em paralelo enquanto
        o FFmpeg termina o restante do MKV em segundo plano, usando fronteira de silêncio
@@ -826,6 +830,7 @@ def _run_parallel_segmented_pipeline(
     final_ckpt_path = temp_dir / "transcription_checkpoint.json"
 
     reused_seg_extract = False
+    single_pass_norm_ready = False
     has_isolated_mic = True
     has_soundpad = False
     stream_count = 6
@@ -848,6 +853,12 @@ def _run_parallel_segmented_pipeline(
                     stream_count = int(meta.get("stream_count", 6))
                     total_duration = float(meta.get("duration", 0.0))
                     total_saved_chunks = len(disc_files)
+                    if (
+                        norm_output_mkv
+                        and meta.get("single_pass_norm_completed") is True
+                        and norm_output_mkv.exists()
+                    ):
+                        single_pass_norm_ready = True
                     print(
                         f"[CHECKPOINT] Reaproveitando {total_saved_chunks} bloco(s) de áudio já extraídos no SSD!",
                         flush=True
@@ -859,7 +870,12 @@ def _run_parallel_segmented_pipeline(
     model = None
     try:
         if not reused_seg_extract:
-            extractor = SegmentedAudioExtractor(mkv_path, seg_dir, segment_sec=segment_sec)
+            extractor = SegmentedAudioExtractor(
+                mkv_path,
+                seg_dir,
+                segment_sec=segment_sec,
+                norm_output_mkv=norm_output_mkv
+            )
             has_isolated_mic = extractor.has_isolated_mic
             has_soundpad = extractor.has_soundpad
             stream_count = extractor.stream_count
@@ -1167,11 +1183,17 @@ def _run_parallel_segmented_pipeline(
         # Garantir término limpo do FFmpeg e salvar metadados completos da extração
         if extractor is not None:
             extractor.wait_finished()
+            single_pass_norm_ready = bool(
+                norm_output_mkv
+                and extractor.returncode == 0
+                and norm_output_mkv.exists()
+            )
             actual_duration = max(chunk_offset_sec, total_duration)
             seg_meta_path.write_text(json.dumps({
                 "mkv_sig": mkv_sig,
                 "mode": "segmented",
                 "extract_completed": True,
+                "single_pass_norm_completed": single_pass_norm_ready,
                 "has_isolated_mic": has_isolated_mic,
                 "has_soundpad": has_soundpad,
                 "stream_count": stream_count,
@@ -1257,5 +1279,6 @@ def _run_parallel_segmented_pipeline(
         "hype_scores": hype_scores,
         "speaker_samples": speaker_samples,
         "has_isolated_mic": has_isolated_mic,
-        "srt_path": str(output_srt_path)
+        "srt_path": str(output_srt_path),
+        "single_pass_norm_mkv": str(norm_output_mkv) if single_pass_norm_ready else None
     }

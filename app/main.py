@@ -772,7 +772,7 @@ def reset_video(video_id: int):
             last_step="Cancelado manualmente pelo usuário",
             error_detail="Cancelado pelo usuário"
         )
-        if cancelled_mode == "normalize_audio":
+        if cancelled_mode in ("normalize_audio", "full"):
             v_cur = get_video_by_id(video_id)
             if v_cur and v_cur.get("file_path"):
                 _cleanup_orphan_audio_norm_temps(Path(v_cur["file_path"]))

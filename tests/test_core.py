@@ -188,3 +188,29 @@ def test_fastapi_csrf_and_masked_settings(tmp_path, monkeypatch):
     r_clear = client.post("/api/settings", json={"clear_google_key": True}, headers=headers)
     assert r_clear.status_code == 200
     assert r_clear.json()["has_google_api_key"] is False
+
+
+def test_single_pass_filter_graph_and_prep_missing_file(tmp_path):
+    from app.audio_pipeline import SegmentedAudioExtractor
+    from app.lossless_media import prepare_single_pass_norm
+
+    # Arquivo inexistente deve retornar should_run=False sem lançar exceção
+    prep = prepare_single_pass_norm(tmp_path / "nao_existe.mkv")
+    assert prep["should_run"] is False
+    assert prep["already_normalized"] is False
+    assert "não encontrado" in prep["error"].lower()
+
+    # Verificar grafo Single-Pass multi-faixa (6 faixas) e faixa única (1 faixa)
+    ext_multi = SegmentedAudioExtractor.__new__(SegmentedAudioExtractor)
+    ext_multi.stream_count = 6
+    fc_multi = ext_multi._build_single_pass_filter_complex()
+    assert "[0:a:2]asplit=2[disc_wh_in][disc_yt_in]" in fc_multi
+    assert "[disc_wh]" in fc_multi
+    assert "[aout]" in fc_multi
+
+    ext_single = SegmentedAudioExtractor.__new__(SegmentedAudioExtractor)
+    ext_single.stream_count = 1
+    fc_single = ext_single._build_single_pass_filter_complex()
+    assert "[0:a:0]asplit=2[disc_wh_in][yt_in]" in fc_single
+    assert "[disc_wh]" in fc_single
+    assert "[aout]" in fc_single

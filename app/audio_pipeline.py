@@ -12,6 +12,34 @@ DISCORD_NORM_FILTER = "dynaudnorm=f=150:g=15:p=0.90:m=20"
 # Reamostra para 16 kHz mono ANTES do dynaudnorm (~6x menos amostras no filtro, mesma qualidade vocal!)
 DISCORD_NORM_FILTER_16K = f"aresample=16000,aformat=channel_layouts=mono,{DISCORD_NORM_FILTER}"
 
+YOUTUBE_AUDIO_NORM_TAG = "youtube_gold_v1"
+
+# Cadeia calibrada nos MKVs reais do OBS (aprovada em testes A/B):
+# - Alvo: -15.5 a -16.6 LUFS (padrão YouTube -14 LUFS sem redução automática), True Peak <= -1.0 dBTP
+# - Equilíbrio Mic (Anfitrião) vs Discord: < 1 dB de diferença | Silêncio nas pausas ~ -78 dB (zero chiado)
+# - Estéreo 48 kHz AAC 320 kbps com channel coupling (c=1)
+YOUTUBE_GOLD_FILTER_MULTI = (
+    "[0:a:0]highpass=f=75,"
+    "dynaudnorm=f=250:g=21:p=0.82:m=12:c=1:b=1:t=0.004,"
+    "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=9dB[a1];"
+    "[0:a:2]highpass=f=85,"
+    "dynaudnorm=f=200:g=15:p=0.78:m=75:c=1:b=1:t=0.0008,"
+    "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=7.5dB[a3];"
+    "[a1][a3]amix=inputs=2:duration=longest:normalize=0:weights=1.0 0.80,"
+    "volume=5.0dB,"
+    "alimiter=limit=0.87:attack=5:release=50:level=false,"
+    "aformat=sample_rates=48000:channel_layouts=stereo[aout]"
+)
+
+YOUTUBE_GOLD_FILTER_SINGLE = (
+    "[0:a:0]highpass=f=75,"
+    "dynaudnorm=f=220:g=15:p=0.80:m=45:c=1:b=1:t=0.001,"
+    "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=8.5dB,"
+    "volume=4.5dB,"
+    "alimiter=limit=0.87:attack=5:release=50:level=false,"
+    "aformat=sample_rates=48000:channel_layouts=stereo[aout]"
+)
+
 
 def parse_time_to_seconds(time_str: str) -> float:
     try:
@@ -373,10 +401,17 @@ class SegmentedAudioExtractor:
     ativos (garantindo que o FFmpeg já fechou k) ou quando o FFmpeg terminou com sucesso.
     """
 
-    def __init__(self, mkv_path: Path, seg_dir: Path, segment_sec: int = 300):
+    def __init__(
+        self,
+        mkv_path: Path,
+        seg_dir: Path,
+        segment_sec: int = 300,
+        norm_output_mkv: Optional[Path] = None
+    ):
         self.mkv_path = mkv_path
         self.seg_dir = seg_dir
         self.segment_sec = int(segment_sec)
+        self.norm_output_mkv: Optional[Path] = Path(norm_output_mkv) if norm_output_mkv else None
         self.stream_count, self.total_dur = get_audio_stream_count_and_duration(mkv_path)
         if self.stream_count == 0:
             raise RuntimeError(f"O vídeo '{mkv_path.name}' não possui nenhuma faixa de áudio.")
@@ -403,6 +438,38 @@ class SegmentedAudioExtractor:
         s = max(0, int(sec))
         return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
+    def _build_single_pass_filter_complex(self) -> str:
+        """
+        Grafo unificado para Passada Única: decodifica o áudio do MKV UMA ÚNICA VEZ e alimenta
+        simultaneamente os blocos 16 kHz mono do Whisper ([disc_wh]) e a Faixa 1 YouTube Gold
+        48 kHz Estéreo ([aout]) para o remux lossless do MKV.
+        """
+        if self.stream_count >= 3:
+            return (
+                "[0:a:0]highpass=f=75,"
+                "dynaudnorm=f=250:g=21:p=0.82:m=12:c=1:b=1:t=0.004,"
+                "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=9dB[a1];"
+                "[0:a:2]asplit=2[disc_wh_in][disc_yt_in];"
+                f"[disc_wh_in]{DISCORD_NORM_FILTER_16K}[disc_wh];"
+                "[disc_yt_in]highpass=f=85,"
+                "dynaudnorm=f=200:g=15:p=0.78:m=75:c=1:b=1:t=0.0008,"
+                "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=7.5dB[a3];"
+                "[a1][a3]amix=inputs=2:duration=longest:normalize=0:weights=1.0 0.80,"
+                "volume=5.0dB,"
+                "alimiter=limit=0.87:attack=5:release=50:level=false,"
+                "aformat=sample_rates=48000:channel_layouts=stereo[aout]"
+            )
+        return (
+            "[0:a:0]asplit=2[disc_wh_in][yt_in];"
+            f"[disc_wh_in]{DISCORD_NORM_FILTER_16K}[disc_wh];"
+            "[yt_in]highpass=f=75,"
+            "dynaudnorm=f=220:g=15:p=0.80:m=45:c=1:b=1:t=0.001,"
+            "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=8.5dB,"
+            "volume=4.5dB,"
+            "alimiter=limit=0.87:attack=5:release=50:level=false,"
+            "aformat=sample_rates=48000:channel_layouts=stereo[aout]"
+        )
+
     def start(self):
         self.seg_dir.mkdir(parents=True, exist_ok=True)
         # Limpar eventuais blocos parciais de execução interrompida antes de extrair novamente
@@ -411,10 +478,16 @@ class SegmentedAudioExtractor:
                 old.unlink()
             except Exception:
                 pass
+        if self.norm_output_mkv and self.norm_output_mkv.exists():
+            try:
+                self.norm_output_mkv.unlink()
+            except Exception:
+                pass
 
         total_str = self._fmt_hhmmss(self.total_dur)
+        sp_tag = " + Normalização YouTube Gold (PASSADA ÚNICA)" if self.norm_output_mkv else ""
         print(
-            f"[FFMPEG] Extração paralela iniciada -> {self.seg_dir} | "
+            f"[FFMPEG] Extração paralela{sp_tag} iniciada -> {self.seg_dir} | "
             f"{self.stream_count} faixa(s) | Duração: {total_str} | Blocos de {self.segment_sec}s",
             flush=True
         )
@@ -422,7 +495,52 @@ class SegmentedAudioExtractor:
         seg_opts = ["-f", "segment", "-segment_time", str(self.segment_sec), "-reset_timestamps", "1"]
         cmd = ["ffmpeg", "-y", "-i", str(self.mkv_path)]
 
-        if self.stream_count >= 3:
+        if self.norm_output_mkv:
+            # PASSADA ÚNICA: extrai blocos WAV no SSD + gera MKV normalizado lossless na mesma leitura!
+            cmd.extend(["-filter_complex", self._build_single_pass_filter_complex()])
+            if self.stream_count >= 2:
+                if self.stream_count == 2:
+                    print("[FFMPEG] Aviso: gravação antiga com 2 faixas (0:a:1 mic, 0:a:0 mix/Discord).", flush=True)
+                cmd.extend([
+                    "-map", "0:a:1", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+                    *seg_opts, str(self.seg_dir / "mic_%04d.wav"),
+                ])
+            else:
+                print("[FFMPEG] Aviso: gravação com apenas 1 faixa (0:a:0). Usando diarização por voz.", flush=True)
+
+            cmd.extend([
+                "-map", "[disc_wh]", "-vn", "-c:a", "pcm_s16le",
+                *seg_opts, str(self.seg_dir / "disc_%04d.wav"),
+            ])
+            if self.has_soundpad:
+                cmd.extend([
+                    "-map", "0:a:5", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+                    *seg_opts, str(self.seg_dir / "sp_%04d.wav"),
+                ])
+
+            # Saída MKV normalizada (vídeo 100% lossless -c:v copy + Faixa 1 YouTube Gold + Faixas 2..N copy)
+            cmd.extend([
+                "-map", "0:v:0",
+                "-map", "[aout]",
+            ])
+            for a_idx in range(1, self.stream_count):
+                cmd.extend(["-map", f"0:a:{a_idx}"])
+            cmd.extend([
+                "-map_metadata", "0",
+                "-map_chapters", "0",
+                "-c:v", "copy",
+                "-c:a:0", "aac", "-b:a:0", "320k",
+            ])
+            for a_idx in range(1, self.stream_count):
+                cmd.extend([f"-c:a:{a_idx}", "copy"])
+            cmd.extend([
+                "-disposition:a:0", "default",
+                "-metadata", f"BANIDO_AUDIO_NORM={YOUTUBE_AUDIO_NORM_TAG}",
+                "-metadata:s:a:0", "title=Track1 (YouTube Gold)",
+                "-metadata:s:a:0", f"BANIDO_AUDIO_NORM={YOUTUBE_AUDIO_NORM_TAG}",
+                str(self.norm_output_mkv)
+            ])
+        elif self.stream_count >= 3:
             cmd.extend([
                 "-map", "0:a:1", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
                 *seg_opts, str(self.seg_dir / "mic_%04d.wav"),
@@ -490,8 +608,9 @@ class SegmentedAudioExtractor:
                 elif self.returncode == 0:
                     elapsed = time.time() - self.t_start
                     spd_real = self.total_dur / max(0.1, elapsed)
+                    sp_done = " + MKV YouTube Gold pronto p/ troca instantânea!" if self.norm_output_mkv else ""
                     print(
-                        f"[FFMPEG] ✅ Extração segmentada 100% concluída em {elapsed:.1f}s ({spd_real:.1f}x tempo real)!",
+                        f"[FFMPEG] ✅ Extração segmentada 100% concluída em {elapsed:.1f}s ({spd_real:.1f}x tempo real){sp_done}",
                         flush=True
                     )
                 self.done_event.set()
@@ -599,6 +718,12 @@ class SegmentedAudioExtractor:
             except Exception:
                 try:
                     self.proc.kill()
+                except Exception:
+                    pass
+        if self.norm_output_mkv and self.norm_output_mkv.exists():
+            if not self.done_event.is_set() or self.returncode != 0:
+                try:
+                    self.norm_output_mkv.unlink()
                 except Exception:
                     pass
 

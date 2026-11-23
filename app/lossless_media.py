@@ -9,34 +9,12 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from xml.sax.saxutils import escape as xml_escape
 from app.config import CLIPS_DIR
-from app.audio_pipeline import get_audio_stream_count_and_duration, parse_time_to_seconds
-
-YOUTUBE_AUDIO_NORM_TAG = "youtube_gold_v1"
-
-# Cadeia calibrada nos MKVs reais do OBS (aprovada em testes A/B):
-# - Alvo: -15.5 a -16.6 LUFS (padrão YouTube -14 LUFS sem redução automática), True Peak <= -1.0 dBTP
-# - Equilíbrio Mic (Anfitrião) vs Discord: < 1 dB de diferença | Silêncio nas pausas ~ -78 dB (zero chiado)
-# - Estéreo 48 kHz AAC 320 kbps com channel coupling (c=1)
-YOUTUBE_GOLD_FILTER_MULTI = (
-    "[0:a:0]highpass=f=75,"
-    "dynaudnorm=f=250:g=21:p=0.82:m=12:c=1:b=1:t=0.004,"
-    "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=9dB[a1];"
-    "[0:a:2]highpass=f=85,"
-    "dynaudnorm=f=200:g=15:p=0.78:m=75:c=1:b=1:t=0.0008,"
-    "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=7.5dB[a3];"
-    "[a1][a3]amix=inputs=2:duration=longest:normalize=0:weights=1.0 0.80,"
-    "volume=5.0dB,"
-    "alimiter=limit=0.87:attack=5:release=50:level=false,"
-    "aformat=sample_rates=48000:channel_layouts=stereo[aout]"
-)
-
-YOUTUBE_GOLD_FILTER_SINGLE = (
-    "[0:a:0]highpass=f=75,"
-    "dynaudnorm=f=220:g=15:p=0.80:m=45:c=1:b=1:t=0.001,"
-    "acompressor=threshold=-25dB:ratio=3.2:attack=6:release=90:makeup=8.5dB,"
-    "volume=4.5dB,"
-    "alimiter=limit=0.87:attack=5:release=50:level=false,"
-    "aformat=sample_rates=48000:channel_layouts=stereo[aout]"
+from app.audio_pipeline import (
+    YOUTUBE_AUDIO_NORM_TAG,
+    YOUTUBE_GOLD_FILTER_MULTI,
+    YOUTUBE_GOLD_FILTER_SINGLE,
+    get_audio_stream_count_and_duration,
+    parse_time_to_seconds,
 )
 
 
@@ -545,6 +523,168 @@ def _fmt_hhmmss(sec: float) -> str:
     return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
 
 
+def prepare_single_pass_norm(mkv_path: Path) -> Dict[str, Any]:
+    """
+    Valida pré-condições para a normalização YouTube Gold em Passada Única
+    (durante a extração paralela do Whisper).
+    Retorna {"should_run": True, "temp_mkv": Path, "orig_info": dict, ...} ou o motivo de skip/erro.
+    """
+    if not mkv_path.exists():
+        return {"should_run": False, "already_normalized": False, "error": f"Arquivo MKV não encontrado: {mkv_path}"}
+
+    try:
+        with open(mkv_path, "rb") as tf:
+            tf.read(16)
+    except OSError as e:
+        return {"should_run": False, "already_normalized": False, "error": f"Sem permissão ou arquivo em uso/bloqueado: {e}"}
+
+    try:
+        orig_stat = mkv_path.stat()
+        orig_size = orig_stat.st_size
+        info = inspect_mkv_audio_norm(mkv_path)
+    except Exception as e:
+        return {"should_run": False, "already_normalized": False, "error": f"Falha ao inspecionar MKV com ffprobe: {e}"}
+
+    if info["audio_streams"] == 0:
+        return {"should_run": False, "already_normalized": False, "error": "O vídeo não possui nenhuma faixa de áudio."}
+
+    if info["is_normalized"]:
+        return {
+            "should_run": False,
+            "already_normalized": True,
+            "norm_tag": info["norm_tag"],
+            "orig_info": info
+        }
+
+    free_bytes = shutil.disk_usage(str(mkv_path.parent)).free
+    needed_bytes = orig_size + (2 * 1024 ** 3)
+    if free_bytes < needed_bytes:
+        return {
+            "should_run": False,
+            "already_normalized": False,
+            "error": (
+                f"Espaço livre insuficiente em {mkv_path.drive or mkv_path.parent}: "
+                f"{free_bytes / (1024**3):.1f} GB livres, necessário pelo menos {needed_bytes / (1024**3):.1f} GB "
+                f"para remux seguro deste arquivo ({orig_size / (1024**3):.1f} GB)."
+            )
+        }
+
+    temp_mkv = mkv_path.with_name(f".{mkv_path.stem}.audio_norm_tmp.mkv")
+    return {
+        "should_run": True,
+        "already_normalized": False,
+        "temp_mkv": temp_mkv,
+        "orig_info": info,
+        "orig_size": orig_size,
+        "orig_atime": orig_stat.st_atime,
+        "orig_mtime": orig_stat.st_mtime
+    }
+
+
+def finalize_normalized_mkv(
+    mkv_path: Path,
+    temp_mkv: Path,
+    orig_info: Optional[Dict[str, Any]] = None,
+    orig_size: Optional[int] = None,
+    orig_atime: Optional[float] = None,
+    orig_mtime: Optional[float] = None,
+    t_start: Optional[float] = None,
+    progress_callback: Optional[Callable[[str, float], None]] = None
+) -> Dict[str, Any]:
+    """
+    Valida integralmente um MKV temporário normalizado com ffprobe (tamanho >= 90%,
+    streams de vídeo/áudio e duração) e substitui o original atomicamente (os.replace)
+    preservando o mtime original. Remove temp_mkv em caso de falha.
+    """
+    t0 = t_start if t_start is not None else time.time()
+    replaced = False
+    try:
+        if not temp_mkv.exists():
+            return {"success": False, "error": f"Arquivo temporário normalizado não encontrado: {temp_mkv.name}"}
+
+        if orig_size is None or orig_atime is None or orig_mtime is None:
+            st = mkv_path.stat()
+            orig_size = st.st_size
+            orig_atime = st.st_atime
+            orig_mtime = st.st_mtime
+
+        if orig_info is None:
+            orig_info = inspect_mkv_audio_norm(mkv_path)
+
+        orig_audio = orig_info["audio_streams"]
+        total_dur = orig_info["duration"]
+
+        if progress_callback:
+            progress_callback("Validando integridade do MKV normalizado com ffprobe...", 0.94)
+
+        new_size = temp_mkv.stat().st_size
+        if new_size < orig_size * 0.90:
+            return {
+                "success": False,
+                "error": (
+                    f"Verificação de integridade falhou (arquivo resultante {new_size / (1024**3):.2f} GB "
+                    f"menor que 90% do original {orig_size / (1024**3):.2f} GB). Original preservado!"
+                )
+            }
+
+        new_info = inspect_mkv_audio_norm(temp_mkv)
+        if new_info["video_streams"] < 1 or new_info["audio_streams"] != orig_audio:
+            return {
+                "success": False,
+                "error": (
+                    f"Contagem de streams divergiu após remux (vídeo={new_info['video_streams']}, "
+                    f"áudio={new_info['audio_streams']} vs esperado {orig_audio}). Original preservado!"
+                )
+            }
+
+        dur_tol = max(3.0, total_dur * 0.01)
+        if total_dur > 0 and abs(new_info["duration"] - total_dur) > dur_tol:
+            return {
+                "success": False,
+                "error": (
+                    f"Duração divergiu após remux ({new_info['duration']:.1f}s vs {total_dur:.1f}s). "
+                    f"Original preservado!"
+                )
+            }
+
+        if progress_callback:
+            progress_callback("Substituindo arquivo original com segurança...", 0.98)
+
+        os.replace(str(temp_mkv), str(mkv_path))
+        replaced = True
+        try:
+            os.utime(str(mkv_path), (orig_atime, orig_mtime))
+        except Exception:
+            pass
+
+        elapsed = round(time.time() - t0, 1)
+        final_size_gb = round(mkv_path.stat().st_size / (1024 ** 3), 2)
+        print(
+            f"[AUDIO NORM] ✅ Concluído em {elapsed}s! {mkv_path.name} ({final_size_gb} GB) "
+            f"| Vídeo 4K AV1 100% lossless | Faixa 1 YouTube Gold | Faixas 2-{orig_audio} preservadas.",
+            flush=True
+        )
+        return {
+            "success": True,
+            "skipped": False,
+            "filename": mkv_path.name,
+            "size_gb": final_size_gb,
+            "mtime": orig_mtime,
+            "duration": new_info["duration"],
+            "audio_streams": orig_audio,
+            "elapsed_sec": elapsed,
+            "norm_tag": YOUTUBE_AUDIO_NORM_TAG
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Erro ao validar/substituir MKV normalizado: {e}"}
+    finally:
+        if not replaced and temp_mkv.exists():
+            try:
+                temp_mkv.unlink()
+            except Exception:
+                pass
+
+
 def normalize_mkv_audio_lossless(
     mkv_path: Path,
     progress_callback: Optional[Callable[[str, float], None]] = None,
@@ -700,68 +840,19 @@ def normalize_mkv_audio_lossless(
                 "error": f"FFmpeg falhou (código {proc.returncode}): {err_tail[-400:]}"
             }
 
-        # 3. Validação rigorosa de integridade antes de substituir o original
-        if progress_callback:
-            progress_callback("Validando integridade do MKV normalizado com ffprobe...", 0.94)
-
-        new_size = temp_mkv.stat().st_size
-        if new_size < orig_size * 0.90:
-            return {
-                "success": False,
-                "error": (
-                    f"Verificação de integridade falhou (arquivo resultante {new_size / (1024**3):.2f} GB "
-                    f"menor que 90% do original {orig_size / (1024**3):.2f} GB). Original preservado!"
-                )
-            }
-
-        new_info = inspect_mkv_audio_norm(temp_mkv)
-        if new_info["video_streams"] < 1 or new_info["audio_streams"] != orig_audio:
-            return {
-                "success": False,
-                "error": (
-                    f"Contagem de streams divergiu após remux (vídeo={new_info['video_streams']}, "
-                    f"áudio={new_info['audio_streams']} vs esperado {orig_audio}). Original preservado!"
-                )
-            }
-
-        dur_tol = max(3.0, total_dur * 0.01)
-        if total_dur > 0 and abs(new_info["duration"] - total_dur) > dur_tol:
-            return {
-                "success": False,
-                "error": (
-                    f"Duração divergiu após remux ({new_info['duration']:.1f}s vs {total_dur:.1f}s). "
-                    f"Original preservado!"
-                )
-            }
-
-        if progress_callback:
-            progress_callback("Substituindo arquivo original com segurança...", 0.98)
-
-        os.replace(str(temp_mkv), str(mkv_path))
-        replaced = True
-        try:
-            os.utime(str(mkv_path), (orig_atime, orig_mtime))
-        except Exception:
-            pass
-
-        elapsed = round(time.time() - t0, 1)
-        final_size_gb = round(mkv_path.stat().st_size / (1024 ** 3), 2)
-        print(
-            f"[AUDIO NORM] ✅ Concluído em {elapsed}s! {mkv_path.name} ({final_size_gb} GB) "
-            f"| Vídeo 4K AV1 100% lossless | Faixa 1 YouTube Gold | Faixas 2-{orig_audio} preservadas.",
-            flush=True
+        # 3. Validação rigorosa de integridade e substituição atômica
+        fin_res = finalize_normalized_mkv(
+            mkv_path=mkv_path,
+            temp_mkv=temp_mkv,
+            orig_info=info,
+            orig_size=orig_size,
+            orig_atime=orig_atime,
+            orig_mtime=orig_mtime,
+            t_start=t0,
+            progress_callback=progress_callback
         )
-        return {
-            "success": True,
-            "skipped": False,
-            "filename": mkv_path.name,
-            "size_gb": final_size_gb,
-            "mtime": orig_mtime,
-            "duration": new_info["duration"],
-            "audio_streams": orig_audio,
-            "elapsed_sec": elapsed,
-            "norm_tag": YOUTUBE_AUDIO_NORM_TAG
-        }
+        replaced = bool(fin_res.get("success"))
+        return fin_res
     except Exception as e:
         return {"success": False, "error": f"Erro inesperado ao normalizar áudio: {e}"}
     finally:
