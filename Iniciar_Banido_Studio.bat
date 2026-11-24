@@ -74,5 +74,19 @@ echo (Mantenha esta janela minimizada enquanto usa o sistema)
 echo =======================================================
 echo.
 
-"%PYTHON_EXE%" -m uvicorn app.main:app --host %HOST% --port %PORT%
-pause
+rem Codigo de saida 3 = o painel pediu reinicio (ex.: apos atualizar pelo GitHub).
+rem O laco inteiro fica num bloco ( ... ): o cmd le o bloco todo antes de executar,
+rem entao uma atualizacao que reescreva este .bat nao quebra a execucao em andamento.
+set "BANIDO_LAUNCHER=1"
+for /l %%N in (0,0,1) do (
+    "%PYTHON_EXE%" -m uvicorn app.main:app --host %HOST% --port %PORT%
+    if !errorlevel! neq 3 (
+        echo.
+        echo Servidor encerrado.
+        pause
+        exit
+    )
+    echo.
+    echo [ATUALIZACAO] Reiniciando o Banido Studio com a nova versao...
+    echo.
+)

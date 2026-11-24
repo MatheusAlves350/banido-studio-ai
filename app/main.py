@@ -46,6 +46,7 @@ from app.voice_bank import (
     list_known_voice_names, resolve_canonical_friend_name,
     extract_speaker_preview_wav, extract_highlight_preview_wav
 )
+from app import updater
 
 # Mapa em memória dos processos worker ativos:
 # video_id -> {"proc": Popen, "job_id": int, "mode": str, "boot_log": Path, "boot_fh": file}
@@ -1236,6 +1237,59 @@ def test_nvidia_key(req: TestKeyModel):
         return {"success": True, "reply": reply_txt or "OK", "model": model}
     except Exception as e:
         return {"success": False, "error": str(e), "model": model}
+
+
+# ==============================================================================
+# ATUALIZAÇÕES (GitHub)
+# ==============================================================================
+
+@app.get("/api/update/status")
+def update_status():
+    """Versão instalada + novidades disponíveis no GitHub (cache de 10 min)."""
+    info = updater.check_for_updates(force=False)
+    return {**info, "apply": updater.get_apply_state(), "restart_supported": updater.launched_by_launcher()}
+
+
+@app.post("/api/update/check")
+def update_check_now():
+    """Força uma nova consulta ao GitHub (botão "Verificar agora")."""
+    info = updater.check_for_updates(force=True)
+    return {**info, "apply": updater.get_apply_state(), "restart_supported": updater.launched_by_launcher()}
+
+
+def _ensure_idle_for_update(action_desc: str):
+    reconcile_worker_processes()
+    if ACTIVE_PROCESSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Não é possível {action_desc} enquanto há {len(ACTIVE_PROCESSES)} processamento(s) em andamento. Aguarde terminar ou cancele."
+        )
+
+
+@app.post("/api/update/apply")
+def update_apply():
+    _ensure_idle_for_update("atualizar")
+    python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+    res = updater.start_apply(python_exe=python_exe)
+    return {**res, "apply": updater.get_apply_state()}
+
+
+@app.get("/api/update/progress")
+def update_progress():
+    return updater.get_apply_state()
+
+
+@app.post("/api/update/restart")
+def update_restart():
+    _ensure_idle_for_update("reiniciar o servidor")
+    if not updater.launched_by_launcher():
+        return {
+            "success": False,
+            "restart_supported": False,
+            "message": "Feche esta janela/terminal do servidor e abra o Banido Studio de novo pelo Iniciar_Banido_Studio.bat (ou ./start.sh)."
+        }
+    updater.schedule_restart()
+    return {"success": True, "restart_supported": True, "message": "Reiniciando o servidor..."}
 
 
 if __name__ == "__main__":
