@@ -30,6 +30,18 @@ Pipeline automatizado de altíssima fidelidade para processar gravações do **O
 
 ---
 
+## 🖼️ Como é a interface
+
+| Tela inicial e diagnóstico | Vídeo processado (etapas e abas) |
+| :---: | :---: |
+| ![Tela inicial com o passo a passo e o quadro "Seu computador está pronto?"](docs/capturas/tela-inicial.png) | ![Vídeo processado com a faixa de etapas e as abas de resultado](docs/capturas/video-etapas.png) |
+| **Conferir vozes** | **Atualização pelo GitHub** |
+| ![Aba Vozes com os cartões para ouvir e confirmar cada pessoa](docs/capturas/aba-vozes.png) | ![Janela de atualização com a lista do que mudou](docs/capturas/atualizacao.png) |
+
+*Capturas feitas com dados de demonstração.*
+
+---
+
 ## 📋 Pré-requisitos
 
 1. **Python 3.10+** (testado em Python 3.10 / 3.11)
