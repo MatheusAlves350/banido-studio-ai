@@ -14,7 +14,7 @@ from app.config import (
 )
 from app.audio_pipeline import (
     is_host_speaking, extract_audio_tracks, analyze_audio_dynamics,
-    get_audio_stream_count_and_duration, compute_rms_100ms,
+    compute_rms_100ms,
     build_balanced_mix_array, SegmentedAudioExtractor, analyze_segmented_hype
 )
 from app.voice_bank import load_known_voice_profiles, cluster_and_identify_speakers, list_known_voice_names

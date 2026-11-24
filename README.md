@@ -238,7 +238,10 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 ## 🧪 Testes Automatizados
 
+Os testes não precisam de GPU, PyTorch nem Whisper — só das dependências leves de `requirements-dev.txt` (as mesmas usadas no GitHub Actions):
+
 ```bash
-pip install pytest httpx
+pip install -r requirements-dev.txt
 pytest -q
+ruff check app tests --select E9,F63,F7,F82,F401,F541,F841
 ```
