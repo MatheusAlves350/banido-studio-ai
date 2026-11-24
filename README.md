@@ -173,17 +173,21 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 ## 🧭 Fluxo de Uso na Interface
 
-1. Coloque gravações `.mkv` na pasta configurada (`BANIDO_OBS_DIR`) e clique em **🔄 Atualizar**.
-2. Opcionalmente informe o **Jogo** e um **Contexto da Sessão** (ajuda o `initial_prompt` do Whisper e a IA).
-3. Escolha a engine (**Google Gemini**, **NVIDIA NIM** ou **Claude Web**), marque opcionalmente **🔊 Incluir normalização de áudio (YouTube Gold lossless) ao processar** se quiser normalizar automaticamente ao final do pipeline, e clique em **🚀 PROCESSAR VÍDEO COMPLETO**.
-4. Na seção de **Vozes Detectadas**:
-   - Ouça os trechos de preview diretamente no navegador;
-   - Confirme os nomes dos participantes para salvar amostras no Banco de Vozes (`vozes_amigos/`) e atualizar a transcrição/`.srt` instantaneamente.
-5. Utilize os recursos pós-análise:
-   - **✂️ Cortes 4K Lossless** (automáticos pelos highlights da IA ou intervalo manual);
-   - **📑 Embutir Capítulos no MKV** (via `mkvpropedit` ou FFmpeg);
-   - **🔊 Normalizar Áudio YouTube Gold** (individual ou em lote);
-   - **🏷️ Renomear Arquivo + Legenda `.srt`** com um clique.
+Ao abrir o painel sem nenhuma gravação selecionada, a tela inicial explica o fluxo e mostra o quadro **"Seu computador está pronto?"**, que verifica FFmpeg, pasta do OBS, chave de IA, placa de vídeo, modelo do Whisper, espaço em disco, MKVToolNix e banco de vozes, dizendo em linguagem simples como resolver cada item.
+
+Com uma gravação selecionada, a faixa de etapas no topo mostra onde você está:
+
+1. **Escolher o jogo**: clique num jogo recente ou digite o nome. O **contexto da sessão** (opcional) ajuda a IA a acertar nomes e apelidos.
+2. **Processar**: marque **Deixar o volume no padrão do YouTube** se quiser, e clique em **Processar vídeo**. A escolha da IA (Gemini, NVIDIA ou Claude Web) e o ajuste só de volume ficam em **Opções avançadas**.
+3. **Conferir vozes**: na aba **Vozes**, ouça o trecho de cada pessoa e confirme o nome. O número na aba mostra quantas vozes ainda faltam.
+4. **Publicar**: nas abas de resultado:
+   - **Título e resumo**: escolha o título e renomeie o `.mkv` e o `.srt`;
+   - **Melhores momentos**: ouça a prévia, ajuste início e fim e exporte os cortes sem perda de qualidade;
+   - **Descrição do YouTube**: copie a descrição com capítulos e as tags;
+   - **Legenda**: busque qualquer frase dita na sessão;
+   - **Avançado**: grave capítulos dentro do `.mkv` e use o Claude pelo navegador (copiar e colar).
+
+Os botões **?** ao lado dos termos técnicos explicam o que cada opção faz.
 
 ---
 

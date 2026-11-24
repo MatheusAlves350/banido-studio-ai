@@ -3,30 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Banido Studio AI - 4K 60fps AV1 Pipeline</title>
-    <link rel="stylesheet" href="/static/style.css?v=5">
-    <link rel="stylesheet" href="/static/updater.css?v=1">
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <title>Banido Studio</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%23f0be4a%22/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/updater.css?v=2">
 </head>
 <body>
     <div class="app-layout">
-        <!-- SIDEBAR -->
+        <!-- MENU LATERAL: GRAVAÇÕES -->
         <aside class="sidebar">
             <div class="brand">
-                <div class="logo-icon">🎬</div>
+                <span class="brand-tally" aria-hidden="true"></span>
                 <div>
-                    <h1>BANIDO STUDIO</h1>
-                    <span class="badge-gpu" id="badge-gpu-label">CUDA / CPU • AV1 4K</span>
+                    <h1>Banido Studio</h1>
+                    <span class="brand-sub" id="badge-gpu-label">Detectando placa de vídeo...</span>
                 </div>
             </div>
 
             <div class="sidebar-search">
-                <input type="text" id="video-search" placeholder="🔍 Buscar gravação...">
+                <label class="sr-only" for="video-search">Buscar gravação</label>
+                <input type="search" id="video-search" placeholder="Buscar gravação">
             </div>
 
             <div class="sidebar-header">
-                <span id="sidebar-obs-label">GRAVAÇÕES OBS</span>
-                <button id="btn-refresh" title="Atualizar Lista">🔄</button>
+                <span id="sidebar-obs-label">Gravações</span>
+                <button id="btn-refresh" class="btn-link" title="Procurar gravações novas na pasta do OBS">Atualizar lista</button>
             </div>
 
             <div class="video-list" id="video-list">
@@ -34,25 +38,27 @@
             </div>
 
             <div class="sidebar-footer">
-                <button id="btn-normalize-batch" class="btn-settings" style="margin-bottom: 8px; border-color: rgba(16, 185, 129, 0.45); color: #34d399;" title="Normaliza a Faixa 1 de todos os vídeos pendentes na pasta de gravações no padrão YouTube Gold (-15.5 LUFS, vídeo 4K 100% lossless, 1 arquivo por vez)">
-                    🔊 Normalizar Áudio (Todos)
-                </button>
-                <div id="batch-audio-status" style="display: none; font-size: 11px; color: var(--accent-gold); margin-bottom: 8px; line-height: 1.35; padding: 6px 8px; background: rgba(255, 183, 3, 0.08); border: 1px solid rgba(255, 183, 3, 0.25); border-radius: 6px;"></div>
-                <button id="btn-open-history" class="btn-settings" style="margin-bottom: 8px; border-color: rgba(0, 229, 255, 0.35);">
-                    🕒 Histórico & Logs de Execução
-                </button>
-                <button id="btn-open-settings" class="btn-settings">⚙️ Configurações das IAs</button>
+                <button id="btn-open-settings" class="btn-settings">Configurações</button>
+                <button id="btn-open-history" class="btn-settings">Histórico de processamentos</button>
+                <details class="sidebar-batch">
+                    <summary>Ferramentas em lote</summary>
+                    <p>Ajusta o volume de todas as gravações da pasta, uma por vez. Pode levar horas.</p>
+                    <button id="btn-normalize-batch" class="btn-settings" title="Ajusta o volume (Faixa 1) de todos os vídeos pendentes no padrão do YouTube, sem mexer na imagem">
+                        Ajustar volume de todas
+                    </button>
+                    <div id="batch-audio-status" class="batch-status" style="display: none;"></div>
+                </details>
             </div>
         </aside>
 
-        <!-- MAIN CONTENT -->
+        <!-- ÁREA PRINCIPAL -->
         <main class="main-content">
             <header class="topbar">
                 <div class="active-video-info" id="active-video-header">
-                    <h2>Selecione uma gravação à esquerda</h2>
+                    <h2>Escolha uma gravação na lista</h2>
                 </div>
                 <div class="topbar-right">
-                    <button id="btn-topbar-history" class="btn-secondary btn-sm">🕒 Histórico (<span id="history-count-badge">0</span>)</button>
+                    <button id="btn-topbar-history" class="btn-secondary btn-sm">Histórico (<span id="history-count-badge">0</span>)</button>
                     <div class="status-indicator" id="server-health-pill">
                         <span class="pulse-dot" id="server-pulse-dot"></span>
                         <span id="connection-status">Conectando...</span>
@@ -61,330 +67,367 @@
             </header>
 
             <div class="content-scroll" id="content-panel">
+                <!-- BOAS-VINDAS + PRIMEIROS PASSOS -->
                 <div class="empty-state" id="empty-state">
-                    <div class="empty-icon">🎮</div>
-                    <h3>Nenhum vídeo selecionado</h3>
-                    <p>Escolha uma sessão de jogo da lista à esquerda para transcrever com Whisper large-v3 Full, acompanhar o log em tempo real, gerar capítulos, renomear com IA e exportar cortes em 4K sem perdas.</p>
+                    <div class="welcome">
+                        <h2>Da gravação do OBS ao vídeo pronto para o YouTube</h2>
+                        <p class="welcome-lead">O Banido Studio escuta a gravação, separa quem falou, escreve a legenda e sugere títulos, capítulos e os melhores momentos para cortar.</p>
+
+                        <ol class="how-steps">
+                            <li><strong>Escolha uma gravação</strong> na lista à esquerda.</li>
+                            <li><strong>Diga qual jogo foi</strong> e clique em <em>Processar vídeo</em>. Pode deixar rodando.</li>
+                            <li><strong>Confira as vozes</strong>: ouça cada trecho e diga quem é. Na próxima vez ele reconhece sozinho.</li>
+                            <li><strong>Publique</strong>: escolha o título, copie a descrição e exporte os cortes.</li>
+                        </ol>
+                    </div>
+
+                    <section class="setup-check" aria-labelledby="setup-title">
+                        <div class="setup-head">
+                            <div>
+                                <h3 id="setup-title">Seu computador está pronto?</h3>
+                                <p id="setup-summary" class="setup-summary">Verificando...</p>
+                            </div>
+                            <button type="button" id="btn-setup-recheck" class="btn-secondary btn-sm">Verificar de novo</button>
+                        </div>
+                        <ul id="setup-items" class="setup-items"></ul>
+                    </section>
                 </div>
 
                 <div class="video-workspace" id="video-workspace" style="display: none;">
-                    <!-- AÇÕES RÁPIDAS / PROCESSAR -->
-                    <section class="card action-bar">
-                        <div class="game-context-wrapper">
-                            <div class="game-selector-group">
-                                <label>🕹️ Jogo desta sessão:</label>
-                                <div class="quick-games">
-                                    <div class="quick-games-chips" id="quick-games-chips">
-                                        <!-- Populado dinamicamente com histórico de jogos via JS -->
-                                    </div>
-                                    <input type="text" id="custom-game-input" list="games-history-datalist" placeholder="Ou digite o jogo...">
-                                    <datalist id="games-history-datalist"></datalist>
-                                    <button type="button" id="btn-save-game-context" class="btn-secondary btn-sm" title="Salva o jogo no histórico e associa o contexto extra a este vídeo">💾 Salvar</button>
-                                    <span id="game-save-status" class="game-save-status"></span>
+                    <!-- ETAPAS -->
+                    <nav class="flow-steps" id="flow-steps" aria-label="Etapas do vídeo">
+                        <button type="button" class="flow-step" data-step="1" data-target="step-setup"><span class="flow-num">1</span><span class="flow-label">Escolher o jogo</span></button>
+                        <button type="button" class="flow-step" data-step="2" data-target="step-setup"><span class="flow-num">2</span><span class="flow-label">Processar</span></button>
+                        <button type="button" class="flow-step" data-step="3" data-tab="tab-vozes"><span class="flow-num">3</span><span class="flow-label">Conferir vozes</span></button>
+                        <button type="button" class="flow-step" data-step="4" data-tab="tab-titulo"><span class="flow-num">4</span><span class="flow-label">Publicar</span></button>
+                    </nav>
+
+                    <!-- ETAPAS 1 E 2: JOGO + PROCESSAR -->
+                    <section class="card action-bar" id="step-setup">
+                        <div class="field">
+                            <label for="custom-game-input" class="field-label">Qual jogo vocês jogaram?</label>
+                            <div class="quick-games">
+                                <div class="quick-games-chips" id="quick-games-chips">
+                                    <!-- Populado com o histórico de jogos via JS -->
                                 </div>
-                            </div>
-                            <div class="context-input-row">
-                                <label for="session-context-input">📝 Contexto p/ Whisper &amp; IA:</label>
-                                <input type="text" id="session-context-input" placeholder="Opcional: mapa, personagens, apelidos, assunto da call (melhora a transcrição e os títulos)...">
+                                <input type="text" id="custom-game-input" list="games-history-datalist" placeholder="Ou digite o nome do jogo">
+                                <datalist id="games-history-datalist"></datalist>
+                                <button type="button" id="btn-save-game-context" class="btn-secondary btn-sm" title="Guarda o jogo e o contexto neste vídeo">Salvar</button>
+                                <span id="game-save-status" class="game-save-status" role="status"></span>
                             </div>
                         </div>
+
+                        <div class="field">
+                            <label for="session-context-input" class="field-label">
+                                Contexto da sessão <span class="optional">(opcional)</span>
+                                <button type="button" class="help" data-help="Escreva nomes, apelidos, mapas ou o assunto da call. Isso ajuda a IA a escrever os nomes certos na legenda e a criar títulos melhores. Ex.: “Kaio e Rafa, ranqueada no mapa Ilios”.">?</button>
+                            </label>
+                            <input type="text" id="session-context-input" placeholder="Ex.: Kaio e Rafa, ranqueada no mapa Ilios">
+                        </div>
+
+                        <label class="check-row" for="chk-normalize-on-process">
+                            <input type="checkbox" id="chk-normalize-on-process">
+                            <span>Deixar o volume no padrão do YouTube ao processar</span>
+                            <button type="button" class="help" data-help="Equilibra a sua voz e a do Discord e coloca o volume no nível que o YouTube espera (-15,5 LUFS), para ninguém ficar alto ou baixo demais. A imagem do vídeo não é recodificada, então a qualidade não muda. Precisa de espaço livre igual ao tamanho do arquivo.">?</button>
+                        </label>
+                        <p id="normalize-on-process-hint" class="field-hint"></p>
 
                         <div class="process-controls">
-                            <select id="select-engine">
-                                <option value="gemini">Google Gemini</option>
-                                <option value="nvidia">NVIDIA NIM</option>
-                                <option value="manual_claude">Claude Web</option>
-                            </select>
-                            <select id="select-active-model" title="Modelo de IA">
-                                <!-- Populado dinamicamente via JS -->
-                            </select>
-                            <button id="btn-start-process" class="btn-primary">
-                                🚀 PROCESSAR VÍDEO COMPLETO
-                            </button>
-                            <button id="btn-normalize-audio" class="btn-secondary" style="border-color: rgba(16, 185, 129, 0.55); color: #34d399;" title="Normaliza o áudio do Discord e do seu Mic na Faixa 1 (padrão YouTube -15.5 LUFS) mantendo o vídeo 4K AV1 100% lossless e as Faixas 2-6 preservadas">
-                                🔊 Normalizar Áudio (YouTube)
-                            </button>
-                            <button id="btn-reanalyze-ai" class="btn-secondary" style="display: none; border-color: var(--accent);" title="Regera títulos, capítulos e melhores momentos em 5s sem precisar transcrever o áudio de novo!">
-                                🧠 Regerar Só IA (5s)
-                            </button>
-                            <button id="btn-reset-process" class="btn-secondary" title="Cancelar ou reiniciar status">
-                                🔄 Reiniciar
-                            </button>
+                            <button id="btn-start-process" class="btn-primary">Processar vídeo</button>
+                            <button id="btn-reanalyze-ai" class="btn-secondary" style="display: none;" title="Cria títulos, capítulos e melhores momentos de novo, sem transcrever o áudio outra vez (alguns segundos)">Gerar títulos de novo</button>
+                            <button id="btn-reset-process" class="btn-secondary" title="Cancela o processamento em andamento ou limpa o status">Reiniciar</button>
                         </div>
-                        <div class="process-options-row" style="width: 100%; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(148, 163, 184, 0.14);">
-                            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); user-select: none;" title="Quando marcado, gera o MKV normalizado (YouTube Gold -15.5 LUFS, vídeo 4K lossless, faixas 2–6 preservadas) em PASSADA ÚNICA em paralelo com o Whisper — sem reprocessar o vídeo no final!">
-                                <input type="checkbox" id="chk-normalize-on-process" style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
-                                <span>🔊 Incluir normalização de áudio (YouTube Gold — Passada Única) ao processar</span>
-                            </label>
-                            <span id="normalize-on-process-hint" style="font-size: 12px; color: var(--text-secondary);"></span>
-                        </div>
+
+                        <details class="advanced">
+                            <summary>Opções avançadas</summary>
+                            <div class="advanced-grid">
+                                <div class="field">
+                                    <label for="select-engine" class="field-label">IA que cria títulos e capítulos</label>
+                                    <select id="select-engine">
+                                        <option value="gemini">Google Gemini (recomendado, tem plano gratuito)</option>
+                                        <option value="nvidia">NVIDIA NIM</option>
+                                        <option value="manual_claude">Claude Web (copiar e colar, sem chave)</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label for="select-active-model" class="field-label">Modelo</label>
+                                    <select id="select-active-model"></select>
+                                </div>
+                                <div class="field">
+                                    <span class="field-label">Só o volume, sem transcrever</span>
+                                    <button id="btn-normalize-audio" class="btn-secondary" title="Ajusta só o volume deste vídeo para o padrão do YouTube, sem transcrever">Ajustar volume deste vídeo</button>
+                                </div>
+                            </div>
+                        </details>
                     </section>
 
-                    <!-- ERROR / INTERRUPTED BANNER -->
-                    <div class="card error-card" id="error-container" style="display: none;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <div style="flex: 1; min-width: 240px;">
-                                <strong id="error-title" style="color: #ef4444;">⚠️ Atenção:</strong>
-                                <span id="error-msg" style="margin-left: 8px; font-size: 13px;"></span>
+                    <!-- ERRO / INTERROMPIDO -->
+                    <div class="card error-card" id="error-container" style="display: none;" role="alert">
+                        <div class="error-row">
+                            <div class="error-text">
+                                <strong id="error-title">Atenção:</strong>
+                                <span id="error-msg"></span>
                             </div>
-                            <div style="display: flex; gap: 8px;">
-                                <button id="btn-show-log-from-err" class="btn-secondary">📟 Ver Log do Erro</button>
-                                <button id="btn-retry-process" class="btn-secondary">🔄 Limpar Status</button>
+                            <div class="error-actions">
+                                <button id="btn-show-log-from-err" class="btn-secondary">Ver detalhes do erro</button>
+                                <button id="btn-retry-process" class="btn-secondary">Limpar status</button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- PROGRESS BAR -->
+                    <!-- PROGRESSO -->
                     <div class="card progress-card" id="progress-container" style="display: none;">
                         <div class="progress-info">
                             <div>
                                 <span id="progress-msg">Iniciando...</span>
-                                <span id="progress-meta" style="font-size: 12px; color: var(--text-secondary); margin-left: 10px;"></span>
+                                <span id="progress-meta" class="progress-meta"></span>
                             </div>
                             <span id="progress-pct">0%</span>
                         </div>
                         <div class="progress-bar-bg">
                             <div class="progress-bar-fill" id="progress-bar-fill"></div>
                         </div>
+                        <p class="progress-note">Pode fechar esta aba ou usar o computador: o processamento continua no servidor.</p>
                     </div>
 
-                    <!-- CONSOLE DE LOG EM TEMPO REAL -->
+                    <!-- LOG TÉCNICO -->
                     <section class="card console-card" id="console-card" style="display: none;">
                         <div class="console-header">
                             <div class="console-title-wrap">
-                                <h3>📟 Console de Execução em Tempo Real</h3>
+                                <h3>Detalhes técnicos</h3>
                                 <span class="console-meta-badge" id="console-job-badge">Sem execução</span>
                             </div>
                             <div class="console-actions">
                                 <label class="autoscroll-label">
-                                    <input type="checkbox" id="chk-autoscroll" checked> Auto-rolar
+                                    <input type="checkbox" id="chk-autoscroll" checked> Rolar automaticamente
                                 </label>
-                                <button id="btn-copy-log" class="btn-secondary btn-sm">📋 Copiar Log</button>
-                                <button id="btn-toggle-console-body" class="btn-secondary btn-sm">🔽 Expandir / Recolher</button>
+                                <button id="btn-copy-log" class="btn-secondary btn-sm">Copiar log</button>
+                                <button id="btn-toggle-console-body" class="btn-secondary btn-sm">Mostrar ou esconder</button>
                             </div>
                         </div>
-                        <pre class="console-output" id="console-output">Aguardando logs de execução...</pre>
+                        <pre class="console-output" id="console-output">Aguardando o log...</pre>
                     </section>
 
-                    <!-- RESULTADOS (COMPLETED) -->
+                    <!-- RESULTADOS -->
                     <div id="results-container" style="display: none;">
-                        <!-- AVISO DE IA SE HOUVER -->
                         <div class="card warning-card" id="ai-warning-box" style="display: none;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <div class="warning-row">
                                 <div>
-                                    <strong style="color: var(--accent-gold);">⚡ Legenda .SRT Pronta — Aviso na Etapa da IA:</strong>
-                                    <span id="ai-warning-text" style="font-size: 13px; margin-left: 6px;"></span>
+                                    <strong>A legenda está pronta, mas a IA não conseguiu criar os títulos.</strong>
+                                    <span id="ai-warning-text"></span>
                                 </div>
-                                <button id="btn-retry-ai-only" class="btn-primary btn-sm">🧠 Tentar IA Novamente (5s)</button>
+                                <button id="btn-retry-ai-only" class="btn-primary btn-sm">Tentar a IA de novo</button>
                             </div>
                         </div>
 
-                        <!-- JOGOS IDENTIFICADOS NA SESSÃO -->
-                        <div class="card games-summary-card" id="games-summary-card" style="display: none;">
-                            <div class="games-summary-row">
-                                <span><strong>🕹️ Jogo Principal:</strong> <span class="tag-badge" id="detected-main-game">Gameplay</span></span>
-                                <span id="detected-other-games-wrap" style="display: none;">
-                                    <strong>🎲 Outros Jogos na Sessão:</strong>
-                                    <span id="detected-other-games-list"></span>
-                                </span>
+                        <div class="games-summary-card" id="games-summary-card" style="display: none;">
+                            <span>Jogo principal: <span class="tag-badge" id="detected-main-game">Gameplay</span></span>
+                            <span id="detected-other-games-wrap" style="display: none;">
+                                Também jogaram: <span id="detected-other-games-list"></span>
+                            </span>
+                        </div>
+
+                        <div class="tabs" role="tablist" aria-label="Resultados do vídeo">
+                            <button type="button" role="tab" class="tab" id="tab-btn-titulo" aria-controls="tab-titulo" aria-selected="true">Título e resumo</button>
+                            <button type="button" role="tab" class="tab" id="tab-btn-vozes" aria-controls="tab-vozes" aria-selected="false">Vozes <span class="tab-count" id="tab-count-vozes"></span></button>
+                            <button type="button" role="tab" class="tab" id="tab-btn-momentos" aria-controls="tab-momentos" aria-selected="false">Melhores momentos</button>
+                            <button type="button" role="tab" class="tab" id="tab-btn-youtube" aria-controls="tab-youtube" aria-selected="false">Descrição do YouTube</button>
+                            <button type="button" role="tab" class="tab" id="tab-btn-transcricao" aria-controls="tab-transcricao" aria-selected="false">Legenda</button>
+                            <button type="button" role="tab" class="tab" id="tab-btn-avancado" aria-controls="tab-avancado" aria-selected="false">Avançado</button>
+                        </div>
+
+                        <!-- ABA: TÍTULO E RESUMO -->
+                        <div class="tab-panel" role="tabpanel" id="tab-titulo" aria-labelledby="tab-btn-titulo">
+                            <div class="grid-2col">
+                                <section class="card">
+                                    <h3>Escolha o título</h3>
+                                    <p class="section-desc">O arquivo do vídeo e a legenda (.srt) são renomeados com o título escolhido. A data da gravação fica no começo do nome.</p>
+                                    <div class="title-options-list" id="title-options-list"></div>
+                                    <div class="rename-action">
+                                        <label class="sr-only" for="custom-title-input">Título personalizado</label>
+                                        <input type="text" id="custom-title-input" placeholder="Ou escreva o seu título">
+                                        <button id="btn-apply-rename" class="btn-primary">Renomear arquivo</button>
+                                    </div>
+                                </section>
+                                <section class="card">
+                                    <h3>Cenas da gravação</h3>
+                                    <p class="section-desc">16 quadros ao longo do vídeo, usados pela IA para reconhecer o jogo.</p>
+                                    <div class="mosaic-preview-wrapper">
+                                        <img id="mosaic-img" src="" alt="Mosaico com 16 cenas da gravação">
+                                    </div>
+                                </section>
+                            </div>
+                            <div class="grid-2col">
+                                <section class="card">
+                                    <h3>Capítulos</h3>
+                                    <div class="chapters-list" id="chapters-list"></div>
+                                </section>
+                                <section class="card">
+                                    <h3>Assuntos da conversa</h3>
+                                    <div class="topics-list" id="topics-list"></div>
+                                </section>
                             </div>
                         </div>
 
-                        <!-- MOSAICO E TÍTULOS -->
-                        <div class="grid-2col">
-                            <!-- MOSAICO VISUAL -->
+                        <!-- ABA: VOZES -->
+                        <div class="tab-panel" role="tabpanel" id="tab-vozes" aria-labelledby="tab-btn-vozes" hidden>
                             <section class="card">
-                                <h3>🖼️ Mosaico Visual da Partida (16 Cenas HD)</h3>
-                                <div class="mosaic-preview-wrapper">
-                                    <img id="mosaic-img" src="" alt="Mosaico de Cenas">
-                                </div>
-                            </section>
-
-                            <!-- TÍTULOS CRIATIVOS & RENOMEAÇÃO -->
-                            <section class="card">
-                                <h3>🏷️ Títulos Sugeridos (com Nome do Jogo)</h3>
-                                <p class="section-desc">Selecione o título que você mais gostou para renomear o arquivo MKV e o .SRT no disco:</p>
-                                <div class="title-options-list" id="title-options-list">
-                                    <!-- Populado via JS -->
-                                </div>
-                                <div class="rename-action">
-                                    <input type="text" id="custom-title-input" placeholder="Ou personalize seu próprio título...">
-                                    <button id="btn-apply-rename" class="btn-secondary">💾 Renomear MKV no Disco E:</button>
-                                </div>
+                                <h3>Quem é quem</h3>
+                                <p class="section-desc">Ouça o trecho de cada voz e confirme o nome. As amostras só são salvas quando você confirma, e o sistema passa a reconhecer essa pessoa nas próximas gravações.</p>
+                                <datalist id="known-friends-datalist"></datalist>
+                                <div class="speaker-cards-grid" id="speakers-grid"></div>
                             </section>
                         </div>
 
-                        <!-- BANCO DE VOZES DOS AMIGOS -->
-                        <section class="card">
-                            <div class="card-title-group">
-                                <h3>👥 Banco de Vozes dos Amigos (Revisão & Confirmação Manual)</h3>
-                                <span class="tag-badge">Vozes salvas em vozes_amigos/</span>
-                            </div>
-                            <p class="section-desc">Nenhuma amostra é salva automaticamente. Clique em <strong>🔊 Ouvir Trecho</strong> para escutar quem falou, escolha ou confirme o nome exato na lista e só então clique em <strong>Salvar</strong> para treinar o banco de vozes:</p>
-                            <datalist id="known-friends-datalist"></datalist>
-                            <div class="speaker-cards-grid" id="speakers-grid">
-                                <!-- Populado via JS -->
-                            </div>
-                        </section>
-
-                        <!-- MELHORES MOMENTOS (HIGHLIGHTS) -->
-                        <section class="card">
-                            <div class="card-title-group" style="flex-wrap: wrap; gap: 10px;">
-                                <h3>🏆 Melhores Momentos (Highlights com Hype & Risadas)</h3>
-                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                    <select id="select-embed-mode" style="padding: 6px 10px; font-size: 12px;" title="O que embutir como capítulos no arquivo MKV original">
-                                        <option value="both">Capítulos + Melhores Momentos</option>
-                                        <option value="highlights">Só Melhores Momentos</option>
-                                        <option value="chapters">Só Capítulos da Sessão</option>
-                                    </select>
-                                    <button id="btn-embed-chapters" class="btn-secondary btn-sm" style="border-color: var(--accent-gold); color: var(--accent-gold);" title="Embute marcadores de capítulos diretamente no arquivo MKV original sem re-renderizar o vídeo">
-                                        🔖 Embutir Capítulos no MKV Original (Lossless)
-                                    </button>
-                                    <span class="tag-badge">Cortes Lossless 4K 60fps AV1</span>
-                                </div>
-                            </div>
-                            <!-- CRIADOR DE CORTE MANUAL -->
-                            <div class="manual-cut-bar">
-                                <span class="manual-cut-label">✂️ Corte Manual:</span>
-                                <input type="text" id="manual-cut-start" placeholder="Início (ex: 00:12:30)" title="Tempo inicial (HH:MM:SS ou segundos)">
-                                <span style="color: var(--text-secondary);">➔</span>
-                                <input type="text" id="manual-cut-end" placeholder="Fim (ex: 00:13:45)" title="Tempo final (HH:MM:SS ou segundos)">
-                                <input type="text" id="manual-cut-title" placeholder="Título do corte personalizado..." style="flex: 1; min-width: 180px;">
-                                <button type="button" id="btn-manual-cut-export" class="btn-secondary btn-sm" style="border-color: var(--accent); color: var(--accent);">✂️ Exportar Corte 4K</button>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px 0; font-size: 12px; color: var(--text-secondary);">
-                                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
-                                    <input type="checkbox" id="chk-keep-all-tracks" style="accent-color: var(--accent); cursor: pointer;">
-                                    <span>🎚️ Manter todas as faixas de áudio nos cortes (ideal para edição posterior)</span>
-                                </label>
-                                <span title="Cortes com -c:v copy iniciam no keyframe imediatamente anterior para preservar 100% da qualidade sem re-renderizar.">ℹ️ Cortes lossless alinham no keyframe anterior (zero perda de qualidade).</span>
-                            </div>
-
-                            <div class="highlights-grid" id="highlights-grid">
-                                <!-- Populado via JS -->
-                            </div>
-                        </section>
-
-                        <!-- CAPÍTULOS E ASSUNTOS CLASSIFICADOS -->
-                        <div class="grid-2col">
+                        <!-- ABA: MELHORES MOMENTOS -->
+                        <div class="tab-panel" role="tabpanel" id="tab-momentos" aria-labelledby="tab-btn-momentos" hidden>
                             <section class="card">
-                                <h3>⏱️ Capítulos da Sessão</h3>
-                                <div class="chapters-list" id="chapters-list">
-                                    <!-- Populado via JS -->
+                                <h3>Melhores momentos</h3>
+                                <p class="section-desc">Trechos com mais risada e agito, escolhidos pela IA. Ouça a prévia, ajuste o início e o fim, e exporte o corte sem perder qualidade.</p>
+                                <div class="manual-cut-bar">
+                                    <span class="manual-cut-label">Corte manual</span>
+                                    <label class="sr-only" for="manual-cut-start">Início</label>
+                                    <input type="text" id="manual-cut-start" placeholder="Início, ex.: 00:12:30" title="Tempo inicial (HH:MM:SS ou segundos)">
+                                    <span class="cut-sep" aria-hidden="true">até</span>
+                                    <label class="sr-only" for="manual-cut-end">Fim</label>
+                                    <input type="text" id="manual-cut-end" placeholder="Fim, ex.: 00:13:45" title="Tempo final (HH:MM:SS ou segundos)">
+                                    <label class="sr-only" for="manual-cut-title">Nome do corte</label>
+                                    <input type="text" id="manual-cut-title" placeholder="Nome do corte" class="grow">
+                                    <button type="button" id="btn-manual-cut-export" class="btn-secondary btn-sm">Exportar corte</button>
                                 </div>
-                            </section>
-                            <section class="card">
-                                <h3>💬 Assuntos Classificados & Tags</h3>
-                                <div class="topics-list" id="topics-list">
-                                    <!-- Populado via JS -->
+                                <div class="cut-options">
+                                    <label class="check-row" for="chk-keep-all-tracks">
+                                        <input type="checkbox" id="chk-keep-all-tracks">
+                                        <span>Manter todas as faixas de áudio nos cortes</span>
+                                        <button type="button" class="help" data-help="Marque se você vai editar o corte depois (ex.: no DaVinci ou Premiere) e quer o microfone, o Discord e o jogo em faixas separadas. Desmarcado, o corte sai com um único áudio já mixado.">?</button>
+                                    </label>
+                                    <span class="field-hint">O corte começa no quadro-chave mais próximo antes do início, por isso pode ter 1 ou 2 segundos a mais.</span>
                                 </div>
+                                <div class="highlights-grid" id="highlights-grid"></div>
                             </section>
                         </div>
 
-                        <!-- BUSCA NA TRANSCRIÇÃO COMPLETA (.SRT) -->
-                        <section class="card">
-                            <div class="card-title-group" style="margin-bottom: 0; flex-wrap: wrap; gap: 10px;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <h3>📝 Buscar na Transcrição (.SRT)</h3>
-                                    <span class="tag-badge" id="transcript-count-badge">0 falas</span>
-                                </div>
-                                <button type="button" id="btn-toggle-transcript" class="btn-secondary btn-sm">🔽 Abrir Busca na Transcrição</button>
-                            </div>
-                            <div id="transcript-explorer-body" style="display: none; margin-top: 14px;">
-                                <div class="transcript-search-bar">
-                                    <input type="text" id="transcript-search-input" placeholder="🔍 Pesquise qualquer palavra, piada ou frase dita na call...">
-                                    <select id="transcript-speaker-filter">
-                                        <option value="">Todos os Participantes</option>
-                                    </select>
-                                    <span id="transcript-match-count" style="font-size: 12px; color: var(--text-secondary); white-space: nowrap;"></span>
-                                </div>
-                                <div class="transcript-results-list" id="transcript-results-list">
-                                    <!-- Populado via JS -->
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- CAPÍTULOS E DESCRIÇÃO PRONTA PARA O YOUTUBE -->
-                        <section class="card">
-                            <div class="card-title-group" style="flex-wrap: wrap; gap: 10px;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <h3>📋 Kit Completo para o YouTube (Com Specs do PC & OBS)</h3>
+                        <!-- ABA: YOUTUBE -->
+                        <div class="tab-panel" role="tabpanel" id="tab-youtube" aria-labelledby="tab-btn-youtube" hidden>
+                            <section class="card">
+                                <div class="card-title-group">
+                                    <h3>Descrição pronta para colar no YouTube</h3>
                                     <span class="tag-badge" id="yt-desc-char-count">0 / 5.000 caracteres</span>
                                 </div>
-                                <div style="display: flex; gap: 8px;">
-                                    <button id="btn-copy-yt-tags" class="btn-secondary">🏷️ Copiar Tags (CSV)</button>
-                                    <button id="btn-copy-yt-desc" class="btn-secondary">📋 Copiar Descrição Completa</button>
+                                <p class="section-desc">Inclui resumo, participantes e capítulos com horário (o YouTube transforma esses horários em marcadores no vídeo).</p>
+                                <div class="yt-actions">
+                                    <button id="btn-copy-yt-desc" class="btn-primary">Copiar descrição</button>
+                                    <button id="btn-copy-yt-tags" class="btn-secondary">Copiar tags</button>
                                 </div>
-                            </div>
-                            <textarea id="yt-description-box" rows="12" readonly></textarea>
-                        </section>
+                                <label class="sr-only" for="yt-description-box">Descrição do YouTube</label>
+                                <textarea id="yt-description-box" rows="14" readonly></textarea>
+                            </section>
+                        </div>
 
-                        <!-- INTEGRAÇÃO CLAUDE WEB -->
-                        <section class="card claude-box">
-                            <h3>🤖 Central Claude Web (Assinatura Sem API)</h3>
-                            <p class="section-desc">Se você usa a assinatura do Claude no navegador, copie o pacote abaixo, cole no claude.ai e cole a resposta aqui:</p>
-                            <div class="claude-actions">
-                                <button id="btn-copy-claude-prompt" class="btn-secondary">📋 1. Copiar Prompt Pronto para o Claude Web</button>
-                            </div>
-                            <div class="claude-import-area">
-                                <textarea id="claude-response-input" rows="4" placeholder="Cole aqui a resposta JSON que o Claude devolver..."></textarea>
-                                <button id="btn-import-claude-response" class="btn-primary">📥 2. Aplicar Resposta do Claude no Vídeo</button>
-                            </div>
-                        </section>
+                        <!-- ABA: LEGENDA / TRANSCRIÇÃO -->
+                        <div class="tab-panel" role="tabpanel" id="tab-transcricao" aria-labelledby="tab-btn-transcricao" hidden>
+                            <section class="card">
+                                <div class="card-title-group">
+                                    <h3>Procurar na legenda</h3>
+                                    <span class="tag-badge" id="transcript-count-badge">0 falas</span>
+                                </div>
+                                <p class="section-desc">Ache aquela frase ou piada e veja em que momento do vídeo ela aconteceu. O arquivo .srt fica ao lado do vídeo.</p>
+                                <button type="button" id="btn-toggle-transcript" class="btn-secondary btn-sm">Abrir busca</button>
+                                <div id="transcript-explorer-body" style="display: none; margin-top: 14px;">
+                                    <div class="transcript-search-bar">
+                                        <label class="sr-only" for="transcript-search-input">Buscar na legenda</label>
+                                        <input type="search" id="transcript-search-input" placeholder="Digite uma palavra ou frase">
+                                        <label class="sr-only" for="transcript-speaker-filter">Filtrar por pessoa</label>
+                                        <select id="transcript-speaker-filter">
+                                            <option value="">Todas as pessoas</option>
+                                        </select>
+                                        <span id="transcript-match-count" class="field-hint"></span>
+                                    </div>
+                                    <div class="transcript-results-list" id="transcript-results-list"></div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <!-- ABA: AVANÇADO -->
+                        <div class="tab-panel" role="tabpanel" id="tab-avancado" aria-labelledby="tab-btn-avancado" hidden>
+                            <section class="card">
+                                <h3>Gravar capítulos dentro do arquivo</h3>
+                                <p class="section-desc">Grava os capítulos e os melhores momentos como marcadores dentro do próprio .mkv, para pular entre eles no VLC ou no editor. O vídeo não é recodificado.</p>
+                                <div class="inline-form">
+                                    <label class="sr-only" for="select-embed-mode">O que gravar</label>
+                                    <select id="select-embed-mode">
+                                        <option value="both">Capítulos e melhores momentos</option>
+                                        <option value="highlights">Só melhores momentos</option>
+                                        <option value="chapters">Só capítulos</option>
+                                    </select>
+                                    <button id="btn-embed-chapters" class="btn-secondary">Gravar no arquivo</button>
+                                </div>
+                            </section>
+
+                            <section class="card claude-box">
+                                <h3>Usar o Claude pelo navegador</h3>
+                                <p class="section-desc">Para quem assina o Claude e não tem chave de API: copie o pedido, cole em claude.ai e traga a resposta de volta.</p>
+                                <div class="claude-steps">
+                                    <div><button id="btn-copy-claude-prompt" class="btn-secondary">1. Copiar pedido para o Claude</button></div>
+                                    <div class="claude-import-area">
+                                        <label class="sr-only" for="claude-response-input">Resposta do Claude</label>
+                                        <textarea id="claude-response-input" rows="4" placeholder="Cole aqui a resposta do Claude (o bloco JSON inteiro)"></textarea>
+                                        <button id="btn-import-claude-response" class="btn-primary">2. Aplicar resposta</button>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
                     </div>
                 </div>
             </div>
         </main>
     </div>
 
-    <!-- MODAL DE HISTÓRICO DE EXECUÇÕES E LOGS -->
+    <!-- HISTÓRICO -->
     <div class="modal-overlay" id="history-modal" style="display: none;">
-        <div class="modal-card modal-wide">
+        <div class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="history-title">
             <div class="modal-header">
-                <h3>🕒 Histórico de Execuções & Logs do Sistema</h3>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <button id="btn-refresh-history" class="btn-secondary btn-sm">🔄 Atualizar</button>
-                    <button id="btn-close-history" class="btn-close">✕</button>
+                <h3 id="history-title">Histórico de processamentos</h3>
+                <div class="modal-header-actions">
+                    <button id="btn-refresh-history" class="btn-secondary btn-sm">Atualizar</button>
+                    <button id="btn-close-history" class="btn-close" aria-label="Fechar">Fechar</button>
                 </div>
             </div>
             <div class="history-modal-body">
-                <div class="history-list-pane" id="history-list-pane">
-                    <!-- Populado via JS -->
-                </div>
+                <div class="history-list-pane" id="history-list-pane"></div>
                 <div class="history-log-pane">
                     <div class="history-log-header">
-                        <span id="history-selected-title">Selecione uma execução à esquerda para inspecionar o log completo</span>
-                        <button id="btn-copy-history-log" class="btn-secondary btn-sm">📋 Copiar</button>
+                        <span id="history-selected-title">Escolha um processamento à esquerda para ver os detalhes</span>
+                        <button id="btn-copy-history-log" class="btn-secondary btn-sm">Copiar</button>
                     </div>
-                    <pre class="console-output history-console" id="history-log-viewer">Nenhum job selecionado.</pre>
+                    <pre class="console-output history-console" id="history-log-viewer">Nenhum processamento selecionado.</pre>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL DE CONFIGURAÇÕES -->
+    <!-- CONFIGURAÇÕES -->
     <div class="modal-overlay" id="settings-modal" style="display: none;">
-        <div class="modal-card">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div class="modal-header">
-                <h3>⚙️ Configurações das IAs</h3>
-                <button id="btn-close-settings" class="btn-close">✕</button>
+                <h3 id="settings-title">Configurações</h3>
+                <button id="btn-close-settings" class="btn-close" aria-label="Fechar">Fechar</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <label style="margin: 0; font-weight: 700;">Google Gemini (API Gratuita):</label>
-                        <button type="button" id="btn-toggle-google-key" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px;">👁️ Mostrar / Ocultar</button>
+                    <div class="form-label-row">
+                        <label for="input-google-key">Chave do Google Gemini</label>
+                        <button type="button" id="btn-toggle-google-key" class="btn-link">Mostrar</button>
                     </div>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="password" id="input-google-key" placeholder="AIzaSy..." style="flex: 1;">
-                        <button type="button" id="btn-test-google-key" class="btn-secondary" style="white-space: nowrap;">🧪 Testar Chave</button>
-                        <button type="button" id="btn-clear-google-key" class="btn-secondary" style="white-space: nowrap; display: none;" title="Remover chave salva">🗑️ Limpar</button>
+                    <div class="key-row">
+                        <input type="password" id="input-google-key" placeholder="Começa com AIza..." autocomplete="off">
+                        <button type="button" id="btn-test-google-key" class="btn-secondary">Testar</button>
+                        <button type="button" id="btn-clear-google-key" class="btn-secondary" style="display: none;" title="Remover a chave salva">Remover</button>
                     </div>
-                    <small id="google-key-feedback">Obtenha grátis em <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> (Lê até 10 horas de sessão de uma vez).</small>
-                    
-                    <div style="margin-top: 10px;">
-                        <label style="font-size: 12px; color: var(--text-secondary);">Modelo Padrão do Google Gemini:</label>
-                        <select id="select-google-default-model" style="width: 100%; margin-top: 4px;">
+                    <small id="google-key-feedback">Gratuita: entre em <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a>, clique em “Get API key” e cole aqui.</small>
+                    <div class="form-sub">
+                        <label for="select-google-default-model">Modelo padrão</label>
+                        <select id="select-google-default-model">
                             <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Recomendado - Ultra Rápido e Cota Alta)</option>
                             <option value="gemini-2.5-flash">gemini-2.5-flash (Gemini 2.5 Flash)</option>
                             <option value="gemini-3-flash-preview">gemini-3-flash-preview (Gemini 3 Flash)</option>
@@ -402,21 +445,20 @@
                     </div>
                 </div>
 
-                <div class="form-group" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <label style="margin: 0; font-weight: 700;">NVIDIA NIM (API com Créditos / Nuvem):</label>
-                        <button type="button" id="btn-toggle-nvidia-key" style="background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px;">👁️ Mostrar / Ocultar</button>
+                <div class="form-group form-group-sep">
+                    <div class="form-label-row">
+                        <label for="input-nvidia-key">Chave da NVIDIA NIM <span class="optional">(opcional)</span></label>
+                        <button type="button" id="btn-toggle-nvidia-key" class="btn-link">Mostrar</button>
                     </div>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="password" id="input-nvidia-key" placeholder="nvapi-..." style="flex: 1;">
-                        <button type="button" id="btn-test-nvidia-key" class="btn-secondary" style="white-space: nowrap;">🧪 Testar Chave</button>
-                        <button type="button" id="btn-clear-nvidia-key" class="btn-secondary" style="white-space: nowrap; display: none;" title="Remover chave salva">🗑️ Limpar</button>
+                    <div class="key-row">
+                        <input type="password" id="input-nvidia-key" placeholder="Começa com nvapi-..." autocomplete="off">
+                        <button type="button" id="btn-test-nvidia-key" class="btn-secondary">Testar</button>
+                        <button type="button" id="btn-clear-nvidia-key" class="btn-secondary" style="display: none;" title="Remover a chave salva">Remover</button>
                     </div>
-                    <small id="nvidia-key-feedback">Para rodar modelos abertos hospedados na nuvem da NVIDIA.</small>
-                    
-                    <div style="margin-top: 10px;">
-                        <label style="font-size: 12px; color: var(--text-secondary);">Modelo Padrão da NVIDIA NIM:</label>
-                        <select id="select-nvidia-default-model" style="width: 100%; margin-top: 4px;">
+                    <small id="nvidia-key-feedback">Alternativa ao Gemini, com modelos abertos na nuvem da NVIDIA.</small>
+                    <div class="form-sub">
+                        <label for="select-nvidia-default-model">Modelo padrão</label>
+                        <select id="select-nvidia-default-model">
                             <option value="mistralai/mistral-large-4-1t-a52b">mistralai/mistral-large-4-1t-a52b (Recomendado - Mistral Large 4)</option>
                             <option value="moonshotai/kimi-k3.1-pro">moonshotai/kimi-k3.1-pro (Kimi K3.1 Pro - Textos Longos)</option>
                             <option value="nvidia/nemotron-3-ultra-550b-a55b">nvidia/nemotron-3-ultra-550b-a55b (Nemotron 3 Ultra 550B)</option>
@@ -433,21 +475,22 @@
                     </div>
                 </div>
 
-                <div class="form-group" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                    <label style="font-weight: 700; display: block; margin-bottom: 6px;">📁 Instância & Diretórios Ativos (via <code>.env</code>):</label>
-                    <div id="instance-paths-info" style="font-size: 12px; color: var(--text-secondary); background: rgba(15, 23, 42, 0.55); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px; line-height: 1.6; font-family: 'JetBrains Mono', monospace;">
-                        Carregando caminhos da instância...
-                    </div>
-                    <small style="display: block; margin-top: 6px;">Para alterar pastas, porta HTTP ou nome do anfitrião, edite o arquivo <code>.env</code> na raiz do projeto (veja <code>.env.example</code>) e reinicie o servidor.</small>
+                <div class="form-group form-group-sep">
+                    <span class="form-label">Pastas usadas</span>
+                    <div id="instance-paths-info" class="paths-info">Carregando...</div>
+                    <small>Para trocar pastas, porta ou o seu nome, edite o arquivo <code>.env</code> na pasta do programa (há um modelo em <code>.env.example</code>) e abra o Banido Studio de novo.</small>
                 </div>
             </div>
             <div class="modal-footer">
-                <button id="btn-save-settings" class="btn-primary">Salvar Configurações</button>
+                <button id="btn-save-settings" class="btn-primary">Salvar configurações</button>
             </div>
         </div>
     </div>
 
-    <script src="/static/app.js?v=7"></script>
-    <script src="/static/updater.js?v=1"></script>
+    <div id="help-popover" class="help-popover" role="tooltip" hidden></div>
+
+    <script src="/static/app.js?v=8"></script>
+    <script src="/static/guide.js?v=1"></script>
+    <script src="/static/updater.js?v=2"></script>
 </body>
 </html>

@@ -47,6 +47,7 @@ from app.voice_bank import (
     extract_speaker_preview_wav, extract_highlight_preview_wav
 )
 from app import updater
+from app.setup_check import run_setup_check
 
 # Mapa em memória dos processos worker ativos:
 # video_id -> {"proc": Popen, "job_id": int, "mode": str, "boot_log": Path, "boot_fh": file}
@@ -400,6 +401,12 @@ def server_status():
             "gpu": PC_SPECS.get("gpu", ""),
         }
     }
+
+
+@app.get("/api/setup/check")
+def setup_check():
+    """Diagnóstico de primeiros passos (FFmpeg, pasta do OBS, chave de IA, GPU, disco...)."""
+    return run_setup_check()
 
 
 @app.get("/api/videos")
