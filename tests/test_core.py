@@ -546,3 +546,42 @@ def test_export_lossless_highlight_exact_cut_uses_reencode_and_accurate_seek(tmp
     assert cmd.count("-ss") == 2  # seek rápido + seek preciso após -i
 
 
+def test_original_mix_backup_detection_and_finalize(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    import app.lossless_media as lm
+
+    fake_probe = {
+        "format": {"duration": "120.0", "tags": {"BANIDO_AUDIO_NORM": lm.YOUTUBE_AUDIO_NORM_TAG}},
+        "streams": [
+            {"codec_type": "video"},
+            {"codec_type": "audio", "tags": {"title": "Track1 (YouTube Gold)"}},
+            {"codec_type": "audio", "tags": {"title": "Track2 (Mic)"}},
+            {"codec_type": "audio", "tags": {"title": "Track3 (Discord)"}},
+            {"codec_type": "audio", "tags": {"title": "Track1 (Original Mix Backup)", "BANIDO_ORIGINAL_MIX": "1"}},
+        ],
+    }
+    monkeypatch.setattr(
+        lm.subprocess, "run",
+        lambda *a, **kw: SimpleNamespace(returncode=0, stdout=json.dumps(fake_probe), stderr=""),
+    )
+    info = lm.inspect_mkv_audio_norm(tmp_path / "video.mkv")
+    assert info["is_normalized"] is True
+    assert info["has_original_backup"] is True
+    assert info["original_backup_index"] == 3
+
+    orig = tmp_path / "orig.mkv"
+    temp = tmp_path / ".orig.audio_norm_tmp.mkv"
+    orig.write_bytes(b"x" * 1000)
+    temp.write_bytes(b"y" * 1050)
+    res = lm.finalize_normalized_mkv(
+        mkv_path=orig,
+        temp_mkv=temp,
+        orig_info={"audio_streams": 3, "video_streams": 1, "duration": 120.0, "has_original_backup": False},
+    )
+    assert res["success"] is True
+    assert res["audio_streams"] == 4
+    assert res["has_original_backup"] is True
+
+
+

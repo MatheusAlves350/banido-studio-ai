@@ -25,14 +25,17 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$PythonVersion = '3.11.9'
-$PythonZipUrl  = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
-$GetPipUrl     = 'https://bootstrap.pypa.io/get-pip.py'
-$TorchIndexUrl = 'https://download.pytorch.org/whl/cu121'
-$FfmpegUrl     = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
-$SevenZipUrl   = 'https://www.7-zip.org/a/7zr.exe'
-$MkvListUrl    = 'https://mkvtoolnix.download/windows/releases/'
-$MkvFallback   = '86.0'
+$PythonVersion   = '3.11.9'
+$PythonZipUrl    = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
+$PythonZipSha256 = '009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b'
+$GetPipUrl       = 'https://bootstrap.pypa.io/get-pip.py'
+$TorchIndexUrl   = 'https://download.pytorch.org/whl/cu121'
+$FfmpegAsset     = 'ffmpeg-master-latest-win64-gpl.zip'
+$FfmpegUrl       = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FfmpegAsset"
+$FfmpegSumsUrl   = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/checksums.sha256'
+$SevenZipUrl     = 'https://www.7-zip.org/a/7zr.exe'
+$MkvListUrl      = 'https://mkvtoolnix.download/windows/releases/'
+$MkvFallback     = '86.0'
 
 # Espacos minimos recomendados (em GB)
 $GbPrograma = 10   # Python + PyTorch/CUDA + FFmpeg + MKVToolNix + downloads temporarios
@@ -61,6 +64,32 @@ function Baixar([string]$url, [string]$destino) {
             Start-Sleep -Seconds (3 * $i)
         }
     }
+}
+
+function VerificarSha256([string]$arquivo, [string]$esperado, [string]$nome) {
+    if ([string]::IsNullOrWhiteSpace($esperado)) { return }
+    $atual = (Get-FileHash -Path $arquivo -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($atual -ne $esperado.Trim().ToLowerInvariant()) {
+        Remove-Item -LiteralPath $arquivo -Force -ErrorAction SilentlyContinue
+        throw "Falha de integridade (SHA-256) em $nome. Esperado: $esperado | Obtido: $atual"
+    }
+    Write-Host "    integridade SHA-256 verificada ($nome)." -ForegroundColor Green
+}
+
+function ObterHashDeManifesto([string]$manifestoUrl, [string]$nomeArquivo) {
+    try {
+        $conteudo = (Invoke-WebRequest -Uri $manifestoUrl -UseBasicParsing).Content
+        foreach ($linha in ($conteudo -split "`r?`n")) {
+            if ($linha -match '^\s*([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') {
+                $hash = $Matches[1].ToLowerInvariant()
+                $alvo = ($Matches[2].Trim() -split '[\\/]')[-1]
+                if ($alvo -ieq $nomeArquivo) { return $hash }
+            }
+        }
+    } catch {
+        Write-Host "    aviso: nao foi possivel consultar manifesto SHA-256 em $manifestoUrl" -ForegroundColor Yellow
+    }
+    return $null
 }
 
 function ExecutarPython([string[]]$argumentos) {
@@ -273,6 +302,7 @@ try {
     if (-not (Test-Path $PythonExe)) {
         $zip = Join-Path $CacheDir "python-$PythonVersion-embed-amd64.zip"
         Baixar $PythonZipUrl $zip
+        VerificarSha256 $zip $PythonZipSha256 "Python $PythonVersion"
         Expand-Archive -Path $zip -DestinationPath $RuntimeDir -Force
     }
     $pth = Get-ChildItem -Path $RuntimeDir -Filter 'python*._pth' | Select-Object -First 1
@@ -335,6 +365,8 @@ try {
         $zip = Join-Path $CacheDir 'ffmpeg.zip'
         $tmp = Join-Path $CacheDir 'ffmpeg_tmp'
         Baixar $FfmpegUrl $zip
+        $ffHash = ObterHashDeManifesto $FfmpegSumsUrl $FfmpegAsset
+        VerificarSha256 $zip $ffHash 'FFmpeg'
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
         $bin = Get-ChildItem -Path $tmp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
@@ -355,9 +387,12 @@ try {
             if ($achadas) { $versao = ($achadas | Sort-Object -Descending | Select-Object -First 1).ToString() }
         } catch { Write-Host "    nao consegui consultar a ultima versao; usando $MkvFallback" -ForegroundColor Yellow }
         $sevenZip = Join-Path $CacheDir '7zr.exe'
+        $mkvAsset = "mkvtoolnix-64-bit-$versao.7z"
         $arq = Join-Path $CacheDir "mkvtoolnix-$versao.7z"
         Baixar $SevenZipUrl $sevenZip
-        Baixar "https://mkvtoolnix.download/windows/releases/$versao/mkvtoolnix-64-bit-$versao.7z" $arq
+        Baixar "https://mkvtoolnix.download/windows/releases/$versao/$mkvAsset" $arq
+        $mkvHash = ObterHashDeManifesto "https://mkvtoolnix.download/windows/releases/$versao/sha256sums.txt" $mkvAsset
+        VerificarSha256 $arq $mkvHash "MKVToolNix $versao"
         $tmp = Join-Path $CacheDir 'mkv_tmp'
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
         $null = ExecutarQuieto $sevenZip @('x', $arq, "-o$tmp", '-y')
