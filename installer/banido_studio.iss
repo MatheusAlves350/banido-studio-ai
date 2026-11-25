@@ -32,8 +32,12 @@ Source: "..\*"; DestDir: "{app}\fonte"; Excludes: ".git\*,.venv\*,venv\*,data\*,
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\fonte\installer\Instalar.ps1"" -InstallDir ""{app}"" -FonteDir ""{app}\fonte"""; StatusMsg: "Baixando e configurando Python, IA, FFmpeg e MKVToolNix (pode levar varios minutos)..."; Flags: waituntilterminated
 
+[UninstallRun]
+; Remove programa, bibliotecas e atalho. Os dados do usuario (gravacoes, cortes, banco, modelos) sao MANTIDOS.
+; Para apagar tambem os dados, use Desinstalar_Banido_Studio.bat e digite APAGAR quando perguntado.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\codigo\installer\Desinstalar.ps1"" -InstallDir ""{app}"" -Quieto"; Flags: waituntilterminated runhidden; RunOnceId: "RemoverBanidoStudio"
+
 [UninstallDelete]
-; A pasta codigo\data (gravacoes, banco, cortes) NAO e removida.
 Type: filesandordirs; Name: "{app}\runtime"
 Type: filesandordirs; Name: "{app}\tools"
 Type: filesandordirs; Name: "{app}\cache"
