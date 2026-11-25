@@ -69,8 +69,9 @@ def test_wait_while_paused_resumes_on_flag_and_when_recording_stops(tmp_path, mo
 def test_resume_override_endpoint_requires_token_and_creates_flag(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     import app.main as m
+    from app.routers import processing
 
-    monkeypatch.setattr(m, "TEMP_DIR", tmp_path)
+    monkeypatch.setattr(processing, "TEMP_DIR", tmp_path)
     client = TestClient(m.app)
     token = re.search(r'<meta name="banido-token" content="([^"]+)">', client.get("/").text).group(1)
 
