@@ -1,4 +1,5 @@
 import os
+import re
 import gc
 import json
 import time
@@ -14,7 +15,7 @@ from app.config import (
 )
 from app.audio_pipeline import (
     is_host_speaking, extract_audio_tracks, analyze_audio_dynamics,
-    get_audio_stream_count_and_duration, compute_rms_100ms,
+    compute_rms_100ms,
     build_balanced_mix_array, SegmentedAudioExtractor, analyze_segmented_hype
 )
 from app.voice_bank import load_known_voice_profiles, cluster_and_identify_speakers, list_known_voice_names
@@ -69,11 +70,47 @@ WHISPER_HALLUCINATION_SUBSTRINGS = (
     "legendas por ",
     "legendas pela comunidade",
     "amara.org",
-    "tradução e legendas",
+    "traducao e legendas",
     "inscreva-se no canal",
     "obrigado por assistir",
-    "subtitles by"
+    "subtitles by",
 )
+
+# Frases típicas de encerramento de vídeos do YouTube que o Whisper "inventa" em trechos
+# de silêncio ou ruído. Comparadas sobre o texto normalizado (sem acentos nem pontuação).
+WHISPER_HALLUCINATION_PHRASES = (
+    "inscreva se no canal",
+    "inscreva se",
+    "se inscreva",
+    "ative o sininho",
+    "ativa o sininho",
+    "ative as notificacoes",
+    "ative a notificacao",
+    "deixe o like",
+    "deixe seu like",
+    "deixa o like",
+    "deixe um like",
+    "curta e compartilhe",
+    "curta o video",
+    "compartilhe este video",
+    "ate o proximo video",
+    "ate a proxima",
+    "obrigado por assistir",
+    "obrigada por assistir",
+    "obrigado por ter assistido",
+    "legendas pela comunidade",
+    "traducao e legendas",
+    "subtitles by",
+    "thanks for watching",
+    "please subscribe",
+)
+
+# Limiares de confiança do Whisper (valores padrão do próprio modelo/OpenAI).
+WHISPER_NO_SPEECH_PROB_LIMIT = 0.6
+WHISPER_AVG_LOGPROB_LIMIT = -1.0
+WHISPER_COMPRESSION_RATIO_LIMIT = 2.4
+# Janela (s) de silêncio que faz o faster-whisper descartar uma alucinação detectada.
+WHISPER_HALLUCINATION_SILENCE_THRESHOLD = 2.0
 
 
 def format_hhmmss(seconds: float) -> str:
@@ -235,12 +272,58 @@ def _find_chunk_boundaries(
     return boundaries, sr
 
 
-def _is_whisper_hallucination(text: str, seg_dur: float) -> bool:
-    low = text.strip().lower()
+def _normalize_for_hallucination(text: str) -> str:
+    """Minúsculas, sem acentos e sem pontuação (hífens viram espaço, espaços colapsados)."""
+    import unicodedata
+    low = unicodedata.normalize("NFKD", str(text or "").lower())
+    low = "".join(ch for ch in low if not unicodedata.combining(ch))
+    low = re.sub(r"[^a-z0-9\s]", " ", low)
+    return " ".join(low.split())
+
+
+def _is_whisper_hallucination(
+    text: str,
+    seg_dur: float,
+    no_speech_prob: Optional[float] = None,
+    avg_logprob: Optional[float] = None,
+    compression_ratio: Optional[float] = None,
+) -> bool:
+    """
+    Decide se um trecho transcrito é "legenda fantasma" do Whisper.
+    Combina (1) frases clássicas de fim de vídeo, (2) métricas de confiança do próprio
+    modelo e (3) repetições em laço. Falas reais curtas ("sim", "não") são preservadas.
+    """
+    low = str(text or "").strip().lower()
     if not low:
         return True
-    if any(sub in low for sub in WHISPER_HALLUCINATION_SUBSTRINGS):
+    norm = _normalize_for_hallucination(low)
+    if not norm:
         return True
+
+    padded = f" {norm} "
+    if any(sub in low or sub in norm for sub in WHISPER_HALLUCINATION_SUBSTRINGS):
+        return True
+    # Frases de fim de vídeo só contam em trechos curtos: uma fala longa que apenas
+    # menciona "se inscreva" no meio da conversa real é preservada.
+    if len(norm.split()) <= 10 and any(f" {ph} " in padded for ph in WHISPER_HALLUCINATION_PHRASES):
+        return True
+
+    # Métricas de confiança: só descartam quando o modelo está inseguro em mais de um sinal,
+    # para não perder falas reais de baixo volume.
+    if (
+        no_speech_prob is not None and avg_logprob is not None
+        and no_speech_prob > WHISPER_NO_SPEECH_PROB_LIMIT
+        and avg_logprob < WHISPER_AVG_LOGPROB_LIMIT
+    ):
+        return True
+    if compression_ratio is not None and compression_ratio > WHISPER_COMPRESSION_RATIO_LIMIT:
+        return True
+
+    # Laço de repetição ("e aí e aí e aí e aí e aí ...").
+    toks = norm.split()
+    if len(toks) >= 8 and len(set(toks)) <= max(2, len(toks) // 5):
+        return True
+
     if seg_dur <= 0.05 and len(low) <= 40:
         return True
     return False
@@ -358,7 +441,12 @@ def _refine_whisper_segment(
     seg_start = float(getattr(seg_obj, "start", 0.0))
     seg_end = float(getattr(seg_obj, "end", seg_start))
     seg_dur = max(0.0, seg_end - seg_start)
-    if _is_whisper_hallucination(full_text, seg_dur):
+    seg_metrics = {
+        "no_speech_prob": getattr(seg_obj, "no_speech_prob", None),
+        "avg_logprob": getattr(seg_obj, "avg_logprob", None),
+        "compression_ratio": getattr(seg_obj, "compression_ratio", None),
+    }
+    if _is_whisper_hallucination(full_text, seg_dur, **seg_metrics):
         return []
 
     words = getattr(seg_obj, "words", None) or []
@@ -470,7 +558,7 @@ def _refine_whisper_segment(
         g_end = max(g_start + 0.05, grp[-1][1])
         g_text = "".join(item[2] for item in grp).strip()
         g_text = " ".join(g_text.split())
-        if _is_whisper_hallucination(g_text, g_end - g_start):
+        if _is_whisper_hallucination(g_text, g_end - g_start, **seg_metrics):
             continue
         refined.append({
             "start": round(g_start + chunk_offset_sec, 2),
@@ -688,6 +776,7 @@ def run_transcription_pipeline(
                 word_timestamps=True,
                 condition_on_previous_text=False,
                 no_speech_threshold=0.6,
+                hallucination_silence_threshold=WHISPER_HALLUCINATION_SILENCE_THRESHOLD,
                 initial_prompt=initial_prompt
             )
 
@@ -1095,6 +1184,7 @@ def _run_parallel_segmented_pipeline(
                 word_timestamps=True,
                 condition_on_previous_text=False,
                 no_speech_threshold=0.6,
+                hallucination_silence_threshold=WHISPER_HALLUCINATION_SILENCE_THRESHOLD,
                 initial_prompt=initial_prompt
             )
 
@@ -1167,6 +1257,7 @@ def _run_parallel_segmented_pipeline(
                 word_timestamps=True,
                 condition_on_previous_text=False,
                 no_speech_threshold=0.6,
+                hallucination_silence_threshold=WHISPER_HALLUCINATION_SILENCE_THRESHOLD,
                 initial_prompt=initial_prompt
             )
             for s in segments_gen:
