@@ -291,3 +291,36 @@ def test_api_models_endpoint_requires_token(tmp_path, monkeypatch):
     r = client.get("/api/models/gemini", headers={"X-Banido-Token": token})
     assert r.status_code == 200 and r.json()["source"] == "default"
     assert client.get("/api/models/outro", headers={"X-Banido-Token": token}).status_code == 404
+
+
+def test_whisper_hallucination_phrases_and_variants():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+
+    for fantasma in [
+        "Inscreva-se no canal, ative o sininho....",
+        "Ative o sininho",
+        "Deixe seu like",
+        "Até o próximo vídeo!",
+        "Se inscreva e ative as notificações",
+        "Legendas pela comunidade Amara.org",
+        "",
+    ]:
+        assert h(fantasma, 2.0), fantasma
+
+
+def test_whisper_hallucination_keeps_real_speech():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+
+    assert not h("Sim, bora jogar mais uma partida", 2.0)
+    assert not h("Não", 0.6)
+    longa = "cara eu falei pra galera que se inscreva no servidor do discord pra ver a partida de hoje e depois a gente vai jogar"
+    assert not h(longa, 6.0)
+
+
+def test_whisper_hallucination_confidence_metrics():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+
+    assert h("hmm tá bom então", 1.5, no_speech_prob=0.9, avg_logprob=-1.4)
+    assert not h("hmm tá bom então", 1.5, no_speech_prob=0.9, avg_logprob=-0.3)
+    assert h("blá blá", 1.0, compression_ratio=3.1)
+    assert h("e aí " * 10, 5.0)
