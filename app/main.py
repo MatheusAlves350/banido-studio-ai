@@ -16,11 +16,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
+from app import security
 
 from app.config import (
     PROJECT_ROOT, BASE_DIR, OBS_RECORDINGS_DIR, DATABASE_DIR, VOICE_BANK_DIR,
     CLIPS_DIR, TEMP_DIR, LOGS_DIR, VENV_PYTHON,
-    HOST_SPEAKER_NAME, GROUP_NAME, PC_SPECS, SERVER_HOST, SERVER_PORT, ALLOWED_HOSTS
+    HOST_SPEAKER_NAME, GROUP_NAME, PC_SPECS, SERVER_HOST, SERVER_PORT, ALLOWED_HOSTS,
+    ACCESS_PASSWORD
 )
 from app.database import (
     init_db, startup_maintenance, sync_obs_videos, get_all_videos, get_video_by_id,
@@ -46,6 +48,7 @@ from app.voice_bank import (
     list_known_voice_names, resolve_canonical_friend_name,
     extract_speaker_preview_wav, extract_highlight_preview_wav
 )
+from app import updater
 
 # Mapa em memória dos processos worker ativos:
 # video_id -> {"proc": Popen, "job_id": int, "mode": str, "boot_log": Path, "boot_fh": file}
@@ -301,6 +304,11 @@ def read_log_tail(log_path_str: str, max_lines: int = 250) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     startup_maintenance()
+    if security.is_network_mode(SERVER_HOST):
+        if ACCESS_PASSWORD:
+            print(f"[SEGURANÇA] Servidor aberto na rede ({SERVER_HOST}): acesso protegido por senha.", flush=True)
+        else:
+            print(f"[SEGURANÇA] {security.NO_PASSWORD_MESSAGE}", flush=True)
     AUDIO_NORM_CHECK_CACHE.clear()
     sync_obs_videos(OBS_RECORDINGS_DIR)
     yield
@@ -325,6 +333,9 @@ async def csrf_and_token_guard(request: Request, call_next):
     needs_token = (
         (path.startswith("/api/") and method in ("POST", "PUT", "PATCH", "DELETE"))
         or (path == "/api/settings" and method == "GET")
+        or (path.startswith("/api/models/") and method == "GET")
+        # GETs que executam FFmpeg/rede ou gravam arquivos: também exigem o token
+        or (path.startswith(("/api/audio/preview/", "/api/speakers/preview/", "/api/update/")) and method == "GET")
     )
     if needs_token:
         provided = request.headers.get("X-Banido-Token", "")
@@ -334,6 +345,55 @@ async def csrf_and_token_guard(request: Request, call_next):
                 content={"detail": "Token de sessão/CSRF inválido ou ausente. Recarregue a página."}
             )
     return await call_next(request)
+
+
+@app.middleware("http")
+async def network_access_guard(request: Request, call_next):
+    """Quando o servidor escuta na rede (BANIDO_HOST não local), exige senha de acesso."""
+    if not security.is_network_mode(SERVER_HOST):
+        return await call_next(request)
+
+    path = request.url.path
+    if not ACCESS_PASSWORD:
+        return JSONResponse(status_code=403, content={"detail": security.NO_PASSWORD_MESSAGE})
+
+    if path == "/login":
+        return await call_next(request)
+    if security.is_valid_session(request.cookies.get(security.SESSION_COOKIE)):
+        return await call_next(request)
+
+    if path.startswith("/api/"):
+        return JSONResponse(status_code=401, content={"detail": "Acesso negado. Faça login em /login."})
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/login")
+def login_page():
+    return HTMLResponse(content=security.login_page_html(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    from fastapi.responses import RedirectResponse
+    client_id = request.client.host if request.client else "?"
+    if security.login_blocked(client_id):
+        return HTMLResponse(
+            content=security.login_page_html("Muitas tentativas. Aguarde 1 minuto."),
+            status_code=429
+        )
+    password = security.parse_login_body(await request.body())
+    if not security.check_password(password, ACCESS_PASSWORD):
+        security.register_login_failure(client_id)
+        return HTMLResponse(content=security.login_page_html("Senha incorreta."), status_code=401)
+
+    security.clear_login_failures(client_id)
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.set_cookie(
+        security.SESSION_COOKIE, security.make_session_value(),
+        max_age=security.SESSION_MAX_AGE_SEC, httponly=True, samesite="strict", path="/"
+    )
+    return resp
 
 
 # Montar diretórios de arquivos estáticos
@@ -876,6 +936,7 @@ def preview_highlight_audio(video_id: int, start: float = 0.0, end: float = 15.0
         ok = extract_highlight_preview_wav(mkv_path, s, e, preview_wav, max_duration=30.0)
         if not ok:
             raise HTTPException(status_code=500, detail="Não foi possível extrair a prévia de áudio do MKV.")
+        security.prune_directory(preview_dir)
 
     return FileResponse(str(preview_wav), media_type="audio/wav", filename=preview_wav.name)
 
@@ -984,6 +1045,7 @@ def preview_speaker_audio(video_id: int, speaker_tag: str):
         ok = extract_speaker_preview_wav(mkv_path, start_sec, end_sec, preview_wav, is_host=is_host)
         if not ok:
             raise HTTPException(status_code=500, detail="Não foi possível extrair o trecho de áudio do MKV.")
+        security.prune_directory(preview_dir)
 
     return FileResponse(str(preview_wav), media_type="audio/wav", filename=preview_wav.name)
 
@@ -1195,6 +1257,17 @@ def update_settings(req: SettingsModel):
     return res
 
 
+@app.get("/api/models/{provider}")
+def get_models(provider: str, refresh: bool = False):
+    """Lista de modelos do provedor (Gemini ou NVIDIA), com cache de 24 h e lista padrão como reserva."""
+    from app.model_catalog import list_models, normalize_provider
+    prov = normalize_provider(provider)
+    if prov is None:
+        raise HTTPException(status_code=404, detail="Provedor desconhecido. Use 'gemini' ou 'nvidia'.")
+    key = get_setting("google_api_key" if prov == "google" else "nvidia_api_key", "")
+    return list_models(prov, key, force_refresh=refresh)
+
+
 class TestKeyModel(BaseModel):
     key: Optional[str] = ""
     model: Optional[str] = ""
@@ -1236,6 +1309,59 @@ def test_nvidia_key(req: TestKeyModel):
         return {"success": True, "reply": reply_txt or "OK", "model": model}
     except Exception as e:
         return {"success": False, "error": str(e), "model": model}
+
+
+# ==============================================================================
+# ATUALIZAÇÕES (GitHub)
+# ==============================================================================
+
+@app.get("/api/update/status")
+def update_status():
+    """Versão instalada + novidades disponíveis no GitHub (cache de 10 min)."""
+    info = updater.check_for_updates(force=False)
+    return {**info, "apply": updater.get_apply_state(), "restart_supported": updater.launched_by_launcher()}
+
+
+@app.post("/api/update/check")
+def update_check_now():
+    """Força uma nova consulta ao GitHub (botão "Verificar agora")."""
+    info = updater.check_for_updates(force=True)
+    return {**info, "apply": updater.get_apply_state(), "restart_supported": updater.launched_by_launcher()}
+
+
+def _ensure_idle_for_update(action_desc: str):
+    reconcile_worker_processes()
+    if ACTIVE_PROCESSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Não é possível {action_desc} enquanto há {len(ACTIVE_PROCESSES)} processamento(s) em andamento. Aguarde terminar ou cancele."
+        )
+
+
+@app.post("/api/update/apply")
+def update_apply():
+    _ensure_idle_for_update("atualizar")
+    python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+    res = updater.start_apply(python_exe=python_exe)
+    return {**res, "apply": updater.get_apply_state()}
+
+
+@app.get("/api/update/progress")
+def update_progress():
+    return updater.get_apply_state()
+
+
+@app.post("/api/update/restart")
+def update_restart():
+    _ensure_idle_for_update("reiniciar o servidor")
+    if not updater.launched_by_launcher():
+        return {
+            "success": False,
+            "restart_supported": False,
+            "message": "Feche esta janela/terminal do servidor e abra o Banido Studio de novo pelo Iniciar_Banido_Studio.bat (ou ./start.sh)."
+        }
+    updater.schedule_restart()
+    return {"success": True, "restart_supported": True, "message": "Reiniciando o servidor..."}
 
 
 if __name__ == "__main__":

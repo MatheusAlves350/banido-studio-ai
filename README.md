@@ -124,11 +124,13 @@ Todas as configurações da instância ficam centralizadas em [`app/config.py`](
 | `BANIDO_TEMP_DIR` | Temp do SO (`/BanidoStudioTemp`) | Pasta para extração temporária de áudio (ideal apontar para um **SSD NVMe**) |
 | `BANIDO_PYTHON` | Python atual (`sys.executable`) | Caminho explícito do interpretador Python para os workers |
 | `BANIDO_HOST` | `127.0.0.1` | Endereço de bind do servidor FastAPI |
+| `BANIDO_ACCESS_PASSWORD` | _(vazio)_ | Senha de acesso. **Obrigatória** se `BANIDO_HOST` não for local (ex.: `0.0.0.0`): sem ela, o servidor recusa todas as requisições. Com ela, quem acessar pela rede vê uma tela de login (cookie de sessão por 7 dias; reiniciar o servidor encerra as sessões). Use só em redes de confiança: a conexão é HTTP, sem criptografia. |
 | `BANIDO_PORT` | `8765` | Porta HTTP da instância |
 | `BANIDO_WHISPER_MODEL` | `large-v3` | Modelo do `faster-whisper` (`large-v3`, `large-v3-turbo`, `medium`, `small`, etc.) |
 | `BANIDO_WHISPER_DEVICE` | `auto` | Dispositivo (`auto`, `cuda` ou `cpu`) |
 | `BANIDO_WHISPER_COMPUTE_TYPE` | `auto` | Precisão (`auto`, `float16`, `int8_float16`, `int8`) |
 | `BANIDO_WHISPER_LANGUAGE` | `pt` | Idioma da transcrição (`pt`, `en`, `auto`, etc.) |
+| `BANIDO_SEPARATE_TRACKS` | `1` | Com microfone isolado (6 ou 2 faixas), transcreve microfone e Discord separadamente e mantém falas sobrepostas. Usa o Whisper duas vezes por bloco (mais lento, mais fiel). `0` volta ao mix único. |
 | `GOOGLE_API_KEY` | *(vazio)* | Chave da API Google Gemini (opcional; também pode ser salva pela interface) |
 | `NVIDIA_API_KEY` | *(vazio)* | Chave da API NVIDIA NIM (opcional; também pode ser salva pela interface) |
 
@@ -187,6 +189,23 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 ---
 
+## 🔄 Atualizações pelo GitHub
+
+O painel avisa quando existe uma versão nova no GitHub e atualiza com 1 clique:
+
+1. Uma faixa **"Nova versão disponível"** aparece no topo (ou clique em **Versão** no rodapé do menu lateral).
+2. **Ver novidades e atualizar** mostra a lista do que mudou.
+3. **Atualizar agora** baixa o código (`git fetch` + `git merge --ff-only`) e, se o `requirements.txt` mudou, roda `pip install -r requirements.txt` sozinho.
+4. **Reiniciar para concluir** reinicia o servidor e recarrega a página.
+
+Regras de segurança:
+- Só funciona em instalações feitas com **`git clone`** (cópias baixadas como ZIP recebem apenas o aviso com o link).
+- A atualização é **bloqueada** se houver vídeo em processamento, arquivos do projeto alterados localmente ou commits locais não publicados — nada é sobrescrito.
+- Seus dados (`data/`, `.env`, gravações, banco de vozes) ficam fora do Git e não são tocados.
+- O reinício automático depende de abrir o sistema pelo `Iniciar_Banido_Studio.bat` ou `./start.sh` (eles reiniciam o servidor quando ele sai com o código 3).
+
+---
+
 ## 🛠️ Solução de Problemas
 
 - **GPU com 4 GB ou 6 GB de VRAM (Out of Memory no Whisper)**:
@@ -218,6 +237,7 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 │   ├── mosaic_generator.py   # Folha de contato 4x4 para visão multimodal
 │   ├── ai_director.py        # Prompts, Gemini, NVIDIA NIM, Claude Web e metadados YT
 │   ├── lossless_media.py     # Normalização YouTube Gold, cortes e capítulos MKV
+│   ├── updater.py            # Verificação e aplicação de atualizações via GitHub (git)
 │   ├── obs_fixer.py          # Utilitário opcional de roteamento multi-track no OBS
 │   └── static/               # Interface Web (index.html, app.js, style.css)
 ├── docs/
@@ -238,7 +258,10 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 ## 🧪 Testes Automatizados
 
+Os testes não precisam de GPU, PyTorch nem Whisper — só das dependências leves de `requirements-dev.txt` (as mesmas usadas no GitHub Actions):
+
 ```bash
-pip install pytest httpx
+pip install -r requirements-dev.txt
 pytest -q
+ruff check app tests --select E9,F63,F7,F82,F401,F541,F841
 ```

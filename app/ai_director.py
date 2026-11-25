@@ -6,30 +6,9 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from app.config import PC_SPECS, OBS_SPECS, AI_SPECS, HOST_SPEAKER_NAME, GROUP_NAME
 
-DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-lite"
-DEFAULT_NVIDIA_MODEL = "mistralai/mistral-large-4-1t-a52b"
-
-GOOGLE_FALLBACK_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash-lite",
-    "gemini-3-flash-preview",
-    "gemini-3.6-flash",
-    "gemini-3.8-flash",
-    "gemini-4-hydrogen",
-    "gemini-flash-latest"
-]
-
-NVIDIA_FALLBACK_MODELS = [
-    "mistralai/mistral-large-4-1t-a52b",
-    "moonshotai/kimi-k3.1-pro",
-    "nvidia/nemotron-3-ultra-550b-a55b",
-    "nvidia/nemotron-3.5-lightning-30b-a3b",
-    "z-ai/glm-5.3-flash",
-    "minimaxai/minimax-m3.1-flash",
-    "google/gemma-4-31b-it"
-]
+from app.model_catalog import (  # fonte única da lista de modelos
+    DEFAULT_GOOGLE_MODEL, DEFAULT_NVIDIA_MODEL, get_fallback_models,
+)
 
 YT_MAX_DESC_CHARS = 5000
 YT_MAX_TAGS_CHARS = 480
@@ -855,7 +834,7 @@ def analyze_with_google_gemini(
         if _is_non_retryable_ai_error(e):
             print("[IA GEMINI] ⛔ Erro definitivo de autenticação/permissão; fallback cancelado imediatamente.", flush=True)
             raise e
-        for fb in GOOGLE_FALLBACK_MODELS:
+        for fb in get_fallback_models("google"):
             if fb != model_name:
                 print(f"[IA GEMINI] 🔄 Tentando fallback automático para '{fb}'...", flush=True)
                 if progress_callback:
@@ -1028,7 +1007,7 @@ def analyze_with_nvidia_nim(
         if _is_non_retryable_ai_error(e):
             print("[IA NVIDIA] ⛔ Erro definitivo de autenticação/permissão; fallback cancelado imediatamente.", flush=True)
             raise e
-        for fb in NVIDIA_FALLBACK_MODELS:
+        for fb in get_fallback_models("nvidia"):
             if fb != model_name:
                 print(f"[IA NVIDIA] 🔄 Tentando fallback automático para '{fb}'...", flush=True)
                 if progress_callback:
