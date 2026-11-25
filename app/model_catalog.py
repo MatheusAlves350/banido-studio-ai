@@ -80,7 +80,11 @@ def _read_disk_cache() -> Dict[str, Dict[str, Any]]:
 def _write_disk_cache() -> None:
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE_FILE.write_text(json.dumps(_CACHE), encoding="utf-8")
+        merged = _read_disk_cache()
+        merged.update(_CACHE)
+        tmp_path = CACHE_FILE.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(merged), encoding="utf-8")
+        tmp_path.replace(CACHE_FILE)
     except Exception:
         pass  # só otimização: sem disco, o cache em memória continua valendo
 

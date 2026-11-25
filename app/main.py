@@ -358,7 +358,7 @@ async def network_access_guard(request: Request, call_next):
     if not ACCESS_PASSWORD:
         return JSONResponse(status_code=403, content={"detail": security.NO_PASSWORD_MESSAGE})
 
-    if path == "/login":
+    if path in ("/login", "/logout"):
         return await call_next(request)
     if security.is_valid_session(request.cookies.get(security.SESSION_COOKIE)):
         return await call_next(request)
@@ -394,6 +394,14 @@ async def login_submit(request: Request):
         security.SESSION_COOKIE, security.make_session_value(),
         max_age=security.SESSION_MAX_AGE_SEC, httponly=True, samesite="strict", path="/"
     )
+    return resp
+
+
+@app.api_route("/logout", methods=["GET", "POST"])
+def logout():
+    from fastapi.responses import RedirectResponse
+    resp = RedirectResponse(url="/login", status_code=303)
+    resp.delete_cookie(security.SESSION_COOKIE, path="/")
     return resp
 
 

@@ -151,6 +151,7 @@ def check_for_updates(force: bool = False, root: Optional[Path] = None) -> Dict[
     result: Dict[str, Any] = {
         "repo": UPDATE_REPO,
         "repo_url": f"https://github.com/{UPDATE_REPO}",
+        "releases_url": f"https://github.com/{UPDATE_REPO}/releases/latest",
         "branch": UPDATE_BRANCH,
         "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "local": get_local_version(root),
@@ -278,6 +279,35 @@ def _log(msg: str, log_fh=None):
             pass
 
 
+def _build_torch_constraints(py_exe: str, tmp_dir: Path) -> Optional[Path]:
+    """Trava versões já instaladas de torch/torchaudio para o pip não trocar CUDA por CPU."""
+    kwargs: Dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "timeout": 30,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        res = subprocess.run([py_exe, "-m", "pip", "freeze", "--all"], **kwargs)
+    except Exception:
+        return None
+    if res.returncode != 0:
+        return None
+    pins = [
+        ln.strip()
+        for ln in (res.stdout or "").splitlines()
+        if ln.strip().startswith(("torch==", "torchaudio=="))
+    ]
+    if not pins:
+        return None
+    c_path = tmp_dir / "torch_constraints.txt"
+    c_path.write_text("\n".join(pins) + "\n", encoding="ascii")
+    return c_path
+
+
 def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOGS_DIR / f"update_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -300,7 +330,12 @@ def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
             deps_updated = False
             if info.get("requirements_changed"):
                 _log("As dependências mudaram. Instalando com pip (pode levar alguns minutos)...", log_fh)
-                pip_cmd = [python_exe or sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+                py_exe = python_exe or sys.executable
+                constraints_path = _build_torch_constraints(py_exe, LOGS_DIR)
+                pip_cmd = [py_exe, "-m", "pip", "install"]
+                if constraints_path is not None:
+                    pip_cmd.extend(["-c", str(constraints_path)])
+                pip_cmd.extend(["-r", "requirements.txt"])
                 pip_kwargs: Dict[str, Any] = {
                     "cwd": str(root or PROJECT_ROOT),
                     "stdout": log_fh,
@@ -309,7 +344,14 @@ def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
                 }
                 if os.name == "nt":
                     pip_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-                pip_res = subprocess.run(pip_cmd, **pip_kwargs)
+                try:
+                    pip_res = subprocess.run(pip_cmd, **pip_kwargs)
+                finally:
+                    if constraints_path is not None:
+                        try:
+                            constraints_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                 if pip_res.returncode != 0:
                     raise RuntimeError(
                         f"pip install terminou com código {pip_res.returncode}. "
@@ -412,5 +454,10 @@ def schedule_restart(delay_sec: float = 0.8, code: int = RESTART_EXIT_CODE):
     """Encerra o processo com o código dado; com o código de reinício, o launcher sobe o servidor de novo."""
     def _exit():
         time.sleep(delay_sec)
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
         os._exit(code)
     threading.Thread(target=_exit, daemon=True).start()

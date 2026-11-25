@@ -90,6 +90,7 @@ input{{background:#0e0e0e;color:#eee;margin-bottom:10px}} button{{background:#2d
 {msg}
 <input type="password" name="password" placeholder="Senha de acesso" autofocus required>
 <button type="submit">Entrar</button>
+<p style="margin-top:12px;margin-bottom:0;font-size:11px;color:#777">Conexão local HTTP (sem criptografia TLS): use apenas na sua rede privada/confiável.</p>
 </form></body></html>"""
 
 

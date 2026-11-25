@@ -172,8 +172,8 @@
                 ? "Cópia baixada como ZIP (sem Git)"
                 : `${local.sha || "?"} — ${local.subject || ""} (${fmtDate(local.date)})`);
         const link = document.getElementById("upd-repo-link");
-        link.href = (installed && info.release_url) || info.repo_url || "#";
-        link.textContent = info.repo || "";
+        link.href = (installed && info.release_url) || (local.mode === "zip" && info.releases_url) || info.repo_url || "#";
+        link.textContent = (local.mode === "zip" && info.releases_url) ? `${info.repo || ""} (Releases)` : (info.repo || "");
         document.getElementById("upd-checked").textContent = info.checked_at || "";
 
         const summary = document.getElementById("upd-summary");

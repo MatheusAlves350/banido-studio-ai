@@ -176,7 +176,7 @@ function GravarEnv([string]$arq, [string]$chave, [string]$valor) {
         } else { $novas.Add($l) }
     }
     if (-not $achou -and $null -ne $valor) { $novas.Add("$chave=`"$valor`"") }
-    Set-Content -Path $arq -Value $novas -Encoding UTF8
+    [System.IO.File]::WriteAllLines($arq, $novas, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 try {

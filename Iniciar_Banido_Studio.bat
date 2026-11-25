@@ -27,7 +27,8 @@ if exist ".env" (
 )
 
 set "PYTHON_EXE="
-if exist "%APP_DIR%\.venv\Scripts\python.exe" set "PYTHON_EXE=%APP_DIR%\.venv\Scripts\python.exe"
+if defined BANIDO_PYTHON if exist "%BANIDO_PYTHON%" set "PYTHON_EXE=%BANIDO_PYTHON%"
+if not defined PYTHON_EXE if exist "%APP_DIR%\.venv\Scripts\python.exe" set "PYTHON_EXE=%APP_DIR%\.venv\Scripts\python.exe"
 if not defined PYTHON_EXE if exist "%APP_DIR%\venv\Scripts\python.exe" set "PYTHON_EXE=%APP_DIR%\venv\Scripts\python.exe"
 if not defined PYTHON_EXE (
     where python >nul 2>&1
@@ -88,7 +89,7 @@ set "OPEN_HOST=%HOST%"
 if "%OPEN_HOST%"=="0.0.0.0" set "OPEN_HOST=localhost"
 if "%OPEN_HOST%"=="127.0.0.1" set "OPEN_HOST=localhost"
 
-start /b powershell -NoProfile -Command "for($i=0;$i -lt 25;$i++){ Start-Sleep -Milliseconds 500; try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/api/status' -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -eq 200){ Start-Process 'http://%OPEN_HOST%:%PORT%'; break } } catch {} }"
+start /b powershell -NoProfile -Command "for($i=0;$i -lt 25;$i++){ Start-Sleep -Milliseconds 500; $ok=$false; try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/api/status' -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -eq 200){ $ok=$true } } catch { if($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -in 401,403){ $ok=$true } }; if($ok){ Start-Process 'http://%OPEN_HOST%:%PORT%'; break } }"
 
 echo [2/2] Servidor ativo em: http://%OPEN_HOST%:%PORT%
 echo.

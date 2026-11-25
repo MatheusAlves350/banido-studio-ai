@@ -2104,6 +2104,7 @@ async function clearSavedApiKey(provider) {
             })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await loadModelCatalog(true);
         await loadSettings(false);
         alert(`Chave do ${label} removida com sucesso.`);
     } catch (e) {
@@ -2135,6 +2136,9 @@ async function saveSettings() {
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        if (googleKey || nvidiaKey) {
+            await loadModelCatalog(true);
         }
         alert("Configurações e modelos salvos com sucesso!");
         await loadSettings(false);
