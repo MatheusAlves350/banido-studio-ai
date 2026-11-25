@@ -59,13 +59,15 @@ var
 // Letra do disco com mais espaco livre (ignora A: e B:).
 function MelhorDisco(): String;
 var
-  Letra: Char;
+  I: Integer;
+  Letra: String;
   Livre, Total, Melhor: Cardinal;
 begin
   Result := 'C';
   Melhor := 0;
-  for Letra := 'C' to 'Z' do
+  for I := 3 to 26 do
   begin
+    Letra := Chr(Ord('A') + I - 1);
     if GetSpaceOnDisk(Letra + ':\', True, Livre, Total) then
       if Livre > Melhor then
       begin
