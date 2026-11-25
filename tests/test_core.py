@@ -396,3 +396,69 @@ def test_single_mix_when_no_isolated_mic():
     disc = np.full(160000, 2.0, dtype=np.float32)
     segs = t._transcribe_block(model, disc, None, disc, 0.0, _dyn(False), "")
     assert model.calls == 1 and len(segs) == 1
+
+
+def _client_rede(tmp_path, monkeypatch, host="0.0.0.0", password="segredo-forte"):
+    from fastapi.testclient import TestClient
+    import app.database as db
+    import app.main as m
+    from app import security
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "net.db")
+    monkeypatch.setattr(db, "SETTINGS_JSON_PATH", tmp_path / "net.json")
+    db.init_db()
+    monkeypatch.setattr(m, "SERVER_HOST", host)
+    monkeypatch.setattr(m, "ACCESS_PASSWORD", password)
+    security._FAILURES.clear()
+    return TestClient(m.app, follow_redirects=False)
+
+
+def test_network_mode_requires_password_and_login(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch)
+    r = c.get("/")
+    assert r.status_code == 303 and r.headers["location"] == "/login"
+    assert c.get("/api/status").status_code == 401
+    assert "banido-token" not in c.get("/login").text  # o token não vaza antes do login
+
+    assert c.post("/login", content="password=errada",
+                  headers={"content-type": "application/x-www-form-urlencoded"}).status_code == 401
+    ok = c.post("/login", content="password=segredo-forte",
+                headers={"content-type": "application/x-www-form-urlencoded"})
+    assert ok.status_code == 303
+    set_cookie = ok.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie and "samesite=strict" in set_cookie
+
+    assert c.get("/").status_code == 200  # cookie guardado pelo cliente
+    assert c.get("/api/status").status_code == 200
+
+
+def test_network_mode_without_password_blocks_everything(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch, password="")
+    assert c.get("/").status_code == 403
+    assert c.get("/login").status_code == 403
+    assert c.get("/api/status").status_code == 403
+
+
+def test_login_rate_limit(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch)
+    h = {"content-type": "application/x-www-form-urlencoded"}
+    for _ in range(5):
+        assert c.post("/login", content="password=x", headers=h).status_code == 401
+    assert c.post("/login", content="password=segredo-forte", headers=h).status_code == 429
+
+
+def test_local_mode_unchanged_and_preview_gets_need_token(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch, host="127.0.0.1", password="")
+    assert c.get("/").status_code == 200  # uso local não pede senha
+    assert c.get("/api/audio/preview/1").status_code == 403
+    assert c.get("/api/speakers/preview/1/Voz_1").status_code == 403
+
+
+def test_prune_directory_removes_oldest(tmp_path):
+    from app.security import prune_directory
+    for i in range(6):
+        f = tmp_path / f"p{i}.wav"
+        f.write_bytes(b"x" * 1000)
+        os.utime(f, (1000 + i, 1000 + i))
+    removed = prune_directory(tmp_path, max_bytes=3000, keep_newest=2)
+    left = sorted(p.name for p in tmp_path.iterdir())
+    assert removed == 3 and left == ["p3.wav", "p4.wav", "p5.wav"]
