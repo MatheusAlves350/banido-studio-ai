@@ -8,8 +8,8 @@
 .setup-card small { display: block; margin-top: 6px; color: var(--text-secondary); line-height: 1.45; }
 .setup-card input[type="text"], .setup-card input[type="password"] { width: 100%; box-sizing: border-box; }
 .setup-feedback { margin: 14px 0 0; font-size: 13px; line-height: 1.45; }
-.setup-feedback.is-error { color: var(--danger); }
-.setup-feedback.is-ok { color: var(--success); }
+.setup-feedback.is-error { color: var(--danger, var(--err)); }
+.setup-feedback.is-ok { color: var(--success, var(--ok)); }
 .setup-feedback.is-info { color: var(--text-secondary); }
 .setup-footer { display: flex; justify-content: space-between; gap: 10px; }
 @media (max-width: 560px) { .setup-row { flex-direction: column; } }

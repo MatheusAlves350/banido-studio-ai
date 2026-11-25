@@ -15,7 +15,7 @@
             b.id = "btn-report-bug-from-err";
             b.type = "button";
             b.className = "btn-secondary";
-            b.textContent = "🐞 Enviar Log / Reportar Bug";
+            b.textContent = "Relatar um problema";
             b.addEventListener("click", () => openModal({ videoId: typeof activeVideoId !== "undefined" ? activeVideoId : null }));
             errBtn.parentElement.insertBefore(b, errBtn.nextSibling);
         }
@@ -27,7 +27,7 @@
             b.id = "btn-report-bug-from-history";
             b.type = "button";
             b.className = "btn-secondary btn-sm";
-            b.textContent = "🐞 Reportar Bug";
+            b.textContent = "Relatar um problema";
             b.title = "Gerar relatório sanitizado desta execução para enviar ao desenvolvedor";
             b.addEventListener("click", () => openModal({ jobId: typeof activeHistoryJobId !== "undefined" ? activeHistoryJobId : null }));
             copyHistBtn.parentElement.insertBefore(b, copyHistBtn);
@@ -42,7 +42,7 @@
             b.className = "btn-settings";
             b.style.marginTop = "8px";
             b.style.borderColor = "rgba(245, 158, 11, 0.35)";
-            b.textContent = "🐞 Reportar Bug / Enviar Log";
+            b.textContent = "Relatar um problema";
             b.addEventListener("click", () => openModal({ videoId: typeof activeVideoId !== "undefined" ? activeVideoId : null }));
             const updBtn = $("upd-version-btn");
             if (updBtn) footer.insertBefore(b, updBtn);
@@ -57,7 +57,7 @@
             modal.innerHTML = `
                 <div class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="diag-title" style="max-width: 780px;">
                     <div class="modal-header">
-                        <h3 id="diag-title">🐞 Relatório de Diagnóstico / Reportar Bug</h3>
+                        <h3 id="diag-title">Relatório de diagnóstico</h3>
                         <button type="button" id="diag-close" class="btn-close">✕</button>
                     </div>
                     <div class="modal-body">
