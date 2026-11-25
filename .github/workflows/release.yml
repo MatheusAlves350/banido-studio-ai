@@ -1,0 +1,44 @@
+name: Release (instalador Windows)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compilar BanidoStudio-Setup.exe
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" installer\banido_studio.iss
+
+      - name: Gerar pacote ZIP (alternativa sem instalador)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path installer\build\zip | Out-Null
+          git archive --format=zip --output=installer\build\BanidoStudio-Fonte.zip HEAD
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BanidoStudio-Setup
+          path: installer/build/BanidoStudio-Setup.exe
+
+      - name: Anexar a release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            installer/build/BanidoStudio-Setup.exe
+            installer/build/BanidoStudio-Fonte.zip
+          generate_release_notes: true
