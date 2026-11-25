@@ -214,3 +214,251 @@ def test_single_pass_filter_graph_and_prep_missing_file(tmp_path):
     assert "[0:a:0]asplit=2[disc_wh_in][yt_in]" in fc_single
     assert "[disc_wh]" in fc_single
     assert "[aout]" in fc_single
+
+
+def _catalog_isolado(tmp_path, monkeypatch):
+    import app.model_catalog as mc
+    monkeypatch.setattr(mc, "CACHE_FILE", tmp_path / "models_cache.json")
+    mc.clear_cache()
+    return mc
+
+
+def test_model_catalog_default_without_key(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    res = mc.list_models("gemini", "")
+    assert res["source"] == "default"
+    assert res["models"][0]["value"] == mc.DEFAULT_GOOGLE_MODEL
+    assert mc.normalize_provider("xyz") is None
+
+
+def test_model_catalog_uses_api_and_filters_fallback(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    chamadas = []
+
+    def fake_get(url, headers):
+        chamadas.append(url)
+        return {"models": [
+            {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-9-novo", "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
+            {"name": "models/gemini-embedding-001", "supportedGenerationMethods": ["generateContent"]},
+        ]}
+
+    monkeypatch.setattr(mc, "_http_get_json", fake_get)
+    res = mc.list_models("gemini", "chave-x")
+    valores = [m["value"] for m in res["models"]]
+    assert res["source"] == "api"
+    assert valores == ["gemini-2.5-flash", "gemini-9-novo"]  # padrão conhecido primeiro, novos depois
+    # segunda chamada vem do cache (24 h)
+    mc.list_models("gemini", "chave-x")
+    assert len(chamadas) == 1
+    # fallback só usa o que a API confirmou
+    assert mc.get_fallback_models("gemini") == ["gemini-2.5-flash"]
+
+
+def test_model_catalog_api_failure_falls_back_to_default(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+
+    def boom(url, headers):
+        raise OSError("sem internet")
+
+    monkeypatch.setattr(mc, "_http_get_json", boom)
+    res = mc.list_models("nvidia", "chave-x")
+    assert res["source"] == "default"
+    assert len(mc.get_fallback_models("nvidia")) >= 3
+
+
+def test_nvidia_models_filter_non_chat(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    monkeypatch.setattr(mc, "_http_get_json", lambda u, h: {"data": [
+        {"id": "z-ai/glm-5.3-flash"}, {"id": "nvidia/nv-embed-v1"}, {"id": "nvidia/rerank-x"},
+    ]})
+    ids = [m["value"] for m in mc.list_models("nvidia", "k")["models"]]
+    assert ids == ["z-ai/glm-5.3-flash"]
+
+
+def test_api_models_endpoint_requires_token(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.database as db
+    import app.main as m
+    _catalog_isolado(tmp_path, monkeypatch)
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr(db, "SETTINGS_JSON_PATH", tmp_path / "s.json")
+    db.init_db()
+    client = TestClient(m.app)
+    token = re.search(r'<meta name="banido-token" content="([^"]+)">', client.get("/").text).group(1)
+    assert client.get("/api/models/gemini").status_code == 403
+    r = client.get("/api/models/gemini", headers={"X-Banido-Token": token})
+    assert r.status_code == 200 and r.json()["source"] == "default"
+    assert client.get("/api/models/outro", headers={"X-Banido-Token": token}).status_code == 404
+
+
+def test_whisper_hallucination_phrases_and_variants():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+
+    for fantasma in [
+        "Inscreva-se no canal, ative o sininho....",
+        "Ative o sininho",
+        "Deixe seu like",
+        "Até o próximo vídeo!",
+        "Se inscreva e ative as notificações",
+        "Legendas pela comunidade Amara.org",
+        "",
+    ]:
+        assert h(fantasma, 2.0), fantasma
+
+
+def test_whisper_hallucination_keeps_real_speech():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+
+    assert not h("Sim, bora jogar mais uma partida", 2.0)
+    assert not h("Não", 0.6)
+    longa = "cara eu falei pra galera que se inscreva no servidor do discord pra ver a partida de hoje e depois a gente vai jogar"
+    assert not h(longa, 6.0)
+
+
+def test_whisper_hallucination_confidence_metrics():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+
+    assert h("hmm tá bom então", 1.5, no_speech_prob=0.9, avg_logprob=-1.4)
+    assert not h("hmm tá bom então", 1.5, no_speech_prob=0.9, avg_logprob=-0.3)
+    assert h("blá blá", 1.0, compression_ratio=3.1)
+    assert h("e aí " * 10, 5.0)
+
+
+def _fake_seg(start, end, text):
+    from types import SimpleNamespace as NS
+    return NS(start=start, end=end, text=text, words=[], no_speech_prob=0.0, avg_logprob=-0.2, compression_ratio=1.2)
+
+
+class _FakeWhisper:
+    """Devolve falas diferentes conforme o áudio recebido (mic = 1.0, discord = 2.0)."""
+    def __init__(self, by_marker):
+        self.by_marker = by_marker
+        self.calls = 0
+
+    def transcribe(self, audio, **kw):
+        import numpy as np
+        self.calls += 1
+        marker = float(np.max(audio))
+        return iter(self.by_marker.get(marker, [])), None
+
+
+def _dyn(has_iso, mic_active=True):
+    import numpy as np
+    n = 100  # 10 s
+    mic = np.full(n, -30.0 if mic_active else -90.0)
+    disc = np.full(n, -30.0)
+    return {"has_isolated_mic": has_iso, "mic_rms": mic, "discord_rms": disc}
+
+
+def test_separate_tracks_keep_overlapping_speech():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    model = _FakeWhisper({
+        1.0: [_fake_seg(1.0, 4.0, "eu acho que vai dar certo")],
+        2.0: [_fake_seg(3.0, 6.0, "não cara, vamos pelo outro lado")],
+    })
+    mic = np.full(160000, 1.0, dtype=np.float32)
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    segs = t._transcribe_block(model, disc, mic, disc, 10.0, _dyn(True), "")
+    assert model.calls == 2
+    assert [s["speaker"] for s in segs] == [t.HOST_SPEAKER_NAME, "Discord"]
+    assert [s["start"] for s in segs] == [11.0, 13.0]  # offset do bloco aplicado
+    assert all(s.get("overlap") for s in segs)  # 13.0-14.0 se sobrepõem
+
+
+def test_separate_tracks_drop_mic_echo_and_silent_mic():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    eco = {
+        1.0: [_fake_seg(1.0, 4.0, "Vamos pelo outro lado, pessoal!")],
+        2.0: [_fake_seg(1.1, 4.0, "vamos pelo outro lado pessoal")],
+    }
+    mic = np.full(160000, 1.0, dtype=np.float32)
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    segs = t._transcribe_block(_FakeWhisper(eco), disc, mic, disc, 0.0, _dyn(True), "")
+    assert [s["speaker"] for s in segs] == ["Discord"]  # eco do Discord no mic removido
+
+    model = _FakeWhisper(eco)
+    segs = t._transcribe_block(model, disc, mic, disc, 0.0, _dyn(True, mic_active=False), "")
+    assert model.calls == 1  # mic mudo: Whisper roda só na faixa Discord
+    assert [s["speaker"] for s in segs] == ["Discord"]
+
+
+def test_single_mix_when_no_isolated_mic():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    model = _FakeWhisper({2.0: [_fake_seg(0.0, 2.0, "fala qualquer")]})
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    segs = t._transcribe_block(model, disc, None, disc, 0.0, _dyn(False), "")
+    assert model.calls == 1 and len(segs) == 1
+
+
+def _client_rede(tmp_path, monkeypatch, host="0.0.0.0", password="segredo-forte"):
+    from fastapi.testclient import TestClient
+    import app.database as db
+    import app.main as m
+    from app import security
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "net.db")
+    monkeypatch.setattr(db, "SETTINGS_JSON_PATH", tmp_path / "net.json")
+    db.init_db()
+    monkeypatch.setattr(m, "SERVER_HOST", host)
+    monkeypatch.setattr(m, "ACCESS_PASSWORD", password)
+    security._FAILURES.clear()
+    return TestClient(m.app, follow_redirects=False)
+
+
+def test_network_mode_requires_password_and_login(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch)
+    r = c.get("/")
+    assert r.status_code == 303 and r.headers["location"] == "/login"
+    assert c.get("/api/status").status_code == 401
+    assert "banido-token" not in c.get("/login").text  # o token não vaza antes do login
+
+    assert c.post("/login", content="password=errada",
+                  headers={"content-type": "application/x-www-form-urlencoded"}).status_code == 401
+    ok = c.post("/login", content="password=segredo-forte",
+                headers={"content-type": "application/x-www-form-urlencoded"})
+    assert ok.status_code == 303
+    set_cookie = ok.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie and "samesite=strict" in set_cookie
+
+    assert c.get("/").status_code == 200  # cookie guardado pelo cliente
+    assert c.get("/api/status").status_code == 200
+
+
+def test_network_mode_without_password_blocks_everything(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch, password="")
+    assert c.get("/").status_code == 403
+    assert c.get("/login").status_code == 403
+    assert c.get("/api/status").status_code == 403
+
+
+def test_login_rate_limit(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch)
+    h = {"content-type": "application/x-www-form-urlencoded"}
+    for _ in range(5):
+        assert c.post("/login", content="password=x", headers=h).status_code == 401
+    assert c.post("/login", content="password=segredo-forte", headers=h).status_code == 429
+
+
+def test_local_mode_unchanged_and_preview_gets_need_token(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch, host="127.0.0.1", password="")
+    assert c.get("/").status_code == 200  # uso local não pede senha
+    assert c.get("/api/audio/preview/1").status_code == 403
+    assert c.get("/api/speakers/preview/1/Voz_1").status_code == 403
+
+
+def test_prune_directory_removes_oldest(tmp_path):
+    from app.security import prune_directory
+    for i in range(6):
+        f = tmp_path / f"p{i}.wav"
+        f.write_bytes(b"x" * 1000)
+        os.utime(f, (1000 + i, 1000 + i))
+    removed = prune_directory(tmp_path, max_bytes=3000, keep_newest=2)
+    left = sorted(p.name for p in tmp_path.iterdir())
+    assert removed == 3 and left == ["p3.wav", "p4.wav", "p5.wav"]

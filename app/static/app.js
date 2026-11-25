@@ -47,36 +47,35 @@ function revokeAllPreviewUrls() {
     }
 }
 
-const GOOGLE_MODELS = [
-    { value: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite (Recomendado - Rápido e Cota Alta)" },
-    { value: "gemini-2.5-flash", label: "gemini-2.5-flash (Gemini 2.5 Flash)" },
-    { value: "gemini-3-flash-preview", label: "gemini-3-flash-preview (Gemini 3 Flash)" },
-    { value: "gemini-3.1-flash-lite", label: "gemini-3.1-flash-lite (Gemini 3.1 Flash Lite)" },
-    { value: "gemini-3.5-flash-lite", label: "gemini-3.5-flash-lite (Gemini 3.5 Flash Lite)" },
-    { value: "gemini-3.5-flash", label: "gemini-3.5-flash (Gemini 3.5 Flash)" },
-    { value: "gemini-3.6-flash", label: "gemini-3.6-flash (Gemini 3.6 Flash)" },
-    { value: "gemini-3.7-flash", label: "gemini-3.7-flash (Gemini 3.7 Flash)" },
-    { value: "gemini-3.8-flash", label: "gemini-3.8-flash (Gemini 3.8 Flash)" },
-    { value: "gemini-4-hydrogen", label: "gemini-4-hydrogen (Gemini 4 Hydrogen)" },
-    { value: "gemini-flash-latest", label: "gemini-flash-latest (Gemini Flash Latest)" },
-    { value: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview (Plano Pago API)" },
-    { value: "gemini-pro-latest", label: "gemini-pro-latest (Plano Pago API)" }
-];
+// Listas preenchidas por GET /api/models/{provider} (fonte única no servidor: app/model_catalog.py).
+let GOOGLE_MODELS = [];
+let NVIDIA_MODELS = [];
 
-const NVIDIA_MODELS = [
-    { value: "mistralai/mistral-large-4-1t-a52b", label: "mistralai/mistral-large-4-1t-a52b (Mistral Large 4 - Recomendado)" },
-    { value: "moonshotai/kimi-k3.1-pro", label: "moonshotai/kimi-k3.1-pro (Kimi K3.1 Pro - Textos Longos)" },
-    { value: "nvidia/nemotron-3-ultra-550b-a55b", label: "nvidia/nemotron-3-ultra-550b-a55b (Nemotron 3 Ultra 550B)" },
-    { value: "nvidia/nemotron-3.5-super-vl-120b-a12b", label: "nvidia/nemotron-3.5-super-vl-120b-a12b (Nemotron 3.5 Super VL 120B)" },
-    { value: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "nvidia/nemotron-3.5-lightning-30b-a3b (Nemotron 3.5 Lightning 30B)" },
-    { value: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", label: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning (Nemotron Raciocínio)" },
-    { value: "z-ai/glm-5.3-flash", label: "z-ai/glm-5.3-flash (GLM 5.3 Flash - Ultra Rápido)" },
-    { value: "minimaxai/minimax-m3.1-flash", label: "minimaxai/minimax-m3.1-flash (MiniMax M3.1 Flash)" },
-    { value: "google/gemma-4-31b-it", label: "google/gemma-4-31b-it (Gemma 4 31B)" },
-    { value: "meta/muse-glimmer-30b", label: "meta/muse-glimmer-30b (Meta Muse Glimmer 30B)" },
-    { value: "stepfun-ai/step-5-preview", label: "stepfun-ai/step-5-preview (StepFun Step 5 Preview)" },
-    { value: "google/gemma-3-12b-it", label: "google/gemma-3-12b-it (Gemma 3 12B)" }
-];
+function fillModelSelect(select, models, selected) {
+    if (!select) return;
+    select.innerHTML = "";
+    models.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.value;
+        opt.textContent = m.label;
+        select.appendChild(opt);
+    });
+    if (models.length) {
+        select.value = models.some(m => m.value === selected) ? selected : models[0].value;
+    }
+}
+
+async function loadModelCatalog(refresh = false) {
+    const q = refresh ? "?refresh=true" : "";
+    const [g, n] = await Promise.all([
+        fetch(`/api/models/gemini${q}`).then(r => r.json()).catch(() => null),
+        fetch(`/api/models/nvidia${q}`).then(r => r.json()).catch(() => null)
+    ]);
+    if (g && Array.isArray(g.models)) GOOGLE_MODELS = g.models;
+    if (n && Array.isArray(n.models)) NVIDIA_MODELS = n.models;
+    fillModelSelect(document.getElementById("select-google-default-model"), GOOGLE_MODELS);
+    fillModelSelect(document.getElementById("select-nvidia-default-model"), NVIDIA_MODELS);
+}
 
 document.addEventListener("DOMContentLoaded", () => {
     setupEventListeners();
@@ -1972,6 +1971,7 @@ async function selectHistoryJob(jobId) {
 
 async function loadSettings(applyToActionBar = false) {
     try {
+        if (!GOOGLE_MODELS.length || !NVIDIA_MODELS.length) await loadModelCatalog();
         const res = await fetch("/api/settings");
         const data = await res.json();
         const googleInput = document.getElementById("input-google-key");
