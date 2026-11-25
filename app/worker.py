@@ -152,7 +152,10 @@ def run_worker(
 
     try:
         t_start = time.time()
-        print(f"[SISTEMA] Worker iniciado (PID {os.getpid()}) | Modo: {mode} | Temp: {temp_job_dir}", flush=True)
+        from app.game_guard import lower_current_process_priority
+        prio_ok = lower_current_process_priority()
+        prio_note = " | Prioridade CPU: abaixo do normal" if prio_ok else ""
+        print(f"[SISTEMA] Worker iniciado (PID {os.getpid()}) | Modo: {mode} | Temp: {temp_job_dir}{prio_note}", flush=True)
 
         if mode == "normalize_audio":
             video = get_video_by_id(video_id)

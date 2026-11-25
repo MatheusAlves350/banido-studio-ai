@@ -80,6 +80,9 @@ WHISPER_COMPUTE_TYPE = (os.getenv("BANIDO_WHISPER_COMPUTE_TYPE") or "auto").stri
 SEPARATE_TRACK_TRANSCRIPTION = (os.getenv("BANIDO_SEPARATE_TRACKS") or "1").strip().lower() not in ("0", "false", "no", "nao", "não")
 # Preserva o mix original (Faixa 1) como faixa extra de backup lossless na normalização de áudio ("0" desativa).
 KEEP_ORIG_AUDIO_BACKUP = (os.getenv("BANIDO_KEEP_ORIG_AUDIO_BACKUP") or "1").strip().lower() not in ("0", "false", "no", "nao", "não")
+# Pausa automaticamente entre blocos se detectar gravação ativa do OBS (ou processo listado em BANIDO_PAUSE_PROCESSES)
+AUTO_PAUSE_ON_RECORDING = (os.getenv("BANIDO_AUTO_PAUSE_ON_RECORDING") or "1").strip().lower() not in ("0", "false", "no", "nao", "não")
+PAUSE_PROCESSES = [p.strip() for p in (os.getenv("BANIDO_PAUSE_PROCESSES") or "").split(",") if p.strip()]
 _raw_lang = (os.getenv("BANIDO_WHISPER_LANGUAGE") or "pt").strip()
 WHISPER_LANGUAGE: Optional[str] = None if _raw_lang.lower() in ("auto", "none", "") else _raw_lang
 
