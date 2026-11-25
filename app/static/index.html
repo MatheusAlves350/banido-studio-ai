@@ -112,10 +112,14 @@
                                 🔄 Reiniciar
                             </button>
                         </div>
-                        <div class="process-options-row" style="width: 100%; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(148, 163, 184, 0.14);">
+                        <div class="process-options-row" style="width: 100%; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(148, 163, 184, 0.14);">
                             <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); user-select: none;" title="Quando marcado, gera o MKV normalizado (YouTube Gold -15.5 LUFS, vídeo 4K lossless, faixas 2–6 preservadas) em PASSADA ÚNICA em paralelo com o Whisper — sem reprocessar o vídeo no final!">
                                 <input type="checkbox" id="chk-normalize-on-process" style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
                                 <span>🔊 Incluir normalização de áudio (YouTube Gold — Passada Única) ao processar</span>
+                            </label>
+                            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-primary); user-select: none;" title="Transcreve microfone e Discord em 2 passadas separadas para preservar falas simultâneas. Desmarque para rodar em 1 passada (mais rápido em CPU/GPU modesta).">
+                                <input type="checkbox" id="chk-separate-tracks" checked style="width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;">
+                                <span>🎙️ Preservar falas simultâneas (2 passadas por faixa)</span>
                             </label>
                             <span id="normalize-on-process-hint" style="font-size: 12px; color: var(--text-secondary);"></span>
                         </div>
@@ -254,11 +258,17 @@
                                 <button type="button" id="btn-manual-cut-export" class="btn-secondary btn-sm" style="border-color: var(--accent); color: var(--accent);">✂️ Exportar Corte 4K</button>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px 0; font-size: 12px; color: var(--text-secondary);">
-                                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
-                                    <input type="checkbox" id="chk-keep-all-tracks" style="accent-color: var(--accent); cursor: pointer;">
-                                    <span>🎚️ Manter todas as faixas de áudio nos cortes (ideal para edição posterior)</span>
-                                </label>
-                                <span title="Cortes com -c:v copy iniciam no keyframe imediatamente anterior para preservar 100% da qualidade sem re-renderizar.">ℹ️ Cortes lossless alinham no keyframe anterior (zero perda de qualidade).</span>
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                                        <input type="checkbox" id="chk-keep-all-tracks" style="accent-color: var(--accent); cursor: pointer;">
+                                        <span>🎚️ Manter todas as faixas de áudio nos cortes</span>
+                                    </label>
+                                    <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;" title="Recodifica o vídeo do corte (H.264 alta qualidade) para começar exatamente no segundo escolhido, sem sobrar segundos do keyframe anterior.">
+                                        <input type="checkbox" id="chk-exact-cut" style="accent-color: var(--accent-gold); cursor: pointer;">
+                                        <span>🎯 Corte exato no frame (início preciso)</span>
+                                    </label>
+                                </div>
+                                <span title="Cortes lossless (-c:v copy) iniciam no keyframe anterior; ative 'Corte exato' se quiser início preciso.">ℹ️ Padrão: lossless (keyframe anterior).</span>
                             </div>
 
                             <div class="highlights-grid" id="highlights-grid">

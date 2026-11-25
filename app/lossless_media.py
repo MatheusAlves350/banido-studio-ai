@@ -146,7 +146,8 @@ def export_lossless_highlight(
     end_sec: float,
     clip_title: str,
     boost_discord: bool = True,
-    keep_all_tracks: bool = False
+    keep_all_tracks: bool = False,
+    exact_cut: bool = False,
 ) -> Dict[str, Any]:
     CLIPS_DIR.mkdir(parents=True, exist_ok=True)
     clean_clip_name = sanitize_filename(clip_title, max_len=80) or "Highlight"
@@ -167,26 +168,41 @@ def export_lossless_highlight(
     except Exception:
         stream_count = 1
 
+    video_codec_args = (
+        ["-c:v", "libx264", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p"]
+        if exact_cut
+        else ["-c:v", "copy"]
+    )
+    seek_args = (
+        ["-ss", f"{max(0.0, start_sec - 4.0):.2f}", "-i", str(mkv_path), "-ss", f"{min(4.0, start_sec):.2f}"]
+        if exact_cut
+        else ["-ss", f"{start_sec:.2f}", "-i", str(mkv_path)]
+    )
+
     if already_normalized or not boost_discord:
-        # Se o MKV já teve a Faixa 1 normalizada no padrão YouTube Gold, faz stream copy instantâneo (sem normalizar 2x!)
+        # Se o MKV já teve a Faixa 1 normalizada no padrão YouTube Gold, evita normalizar 2x
+        audio_codec_args = (
+            ["-c:a:0", "aac", "-b:a:0", "320k", "-ar:a:0", "48000", "-ac:a:0", "2"]
+            if exact_cut
+            else ["-c:a", "copy"]
+        )
         cmd = [
             "ffmpeg", "-y",
-            "-ss", f"{start_sec:.2f}",
-            "-i", str(mkv_path),
+            *seek_args,
             "-t", f"{dur:.2f}",
             "-map", "0:v:0",
             "-map", "0:a" if keep_all_tracks else "0:a:0",
-            "-c:v", "copy",
-            "-c:a", "copy",
-            "-avoid_negative_ts", "make_zero",
-            str(output_clip_path)
+            *video_codec_args,
+            *audio_codec_args,
         ]
+        if exact_cut and keep_all_tracks and stream_count > 1:
+            for a_idx in range(1, stream_count):
+                cmd.extend([f"-c:a:{a_idx}", "aac", f"-b:a:{a_idx}", "192k"])
+        cmd.extend(["-avoid_negative_ts", "make_zero", str(output_clip_path)])
     elif stream_count >= 3:
-        # Vídeo 100% LOSSLESS (-c:v copy) + Cadeia calibrada YouTube Gold (-15.5 LUFS, True Peak -1.0 dBTP)
         cmd = [
             "ffmpeg", "-y",
-            "-ss", f"{start_sec:.2f}",
-            "-i", str(mkv_path),
+            *seek_args,
             "-t", f"{dur:.2f}",
             "-filter_complex", YOUTUBE_GOLD_FILTER_MULTI,
             "-map", "0:v:0",
@@ -196,18 +212,17 @@ def export_lossless_highlight(
             for a_idx in range(1, stream_count):
                 cmd.extend(["-map", f"0:a:{a_idx}"])
         cmd.extend([
-            "-c:v", "copy",
+            *video_codec_args,
             "-c:a:0", "aac", "-b:a:0", "320k", "-ar:a:0", "48000", "-ac:a:0", "2",
         ])
         if keep_all_tracks:
             for a_idx in range(1, stream_count):
-                cmd.extend([f"-c:a:{a_idx}", "copy"])
+                cmd.extend([f"-c:a:{a_idx}", "aac" if exact_cut else "copy"])
         cmd.extend(["-avoid_negative_ts", "make_zero", str(output_clip_path)])
     else:
         cmd = [
             "ffmpeg", "-y",
-            "-ss", f"{start_sec:.2f}",
-            "-i", str(mkv_path),
+            *seek_args,
             "-t", f"{dur:.2f}",
             "-filter_complex", YOUTUBE_GOLD_FILTER_SINGLE,
             "-map", "0:v:0",
@@ -217,12 +232,12 @@ def export_lossless_highlight(
             for a_idx in range(1, stream_count):
                 cmd.extend(["-map", f"0:a:{a_idx}"])
         cmd.extend([
-            "-c:v", "copy",
+            *video_codec_args,
             "-c:a:0", "aac", "-b:a:0", "320k", "-ar:a:0", "48000", "-ac:a:0", "2",
         ])
         if keep_all_tracks and stream_count > 1:
             for a_idx in range(1, stream_count):
-                cmd.extend([f"-c:a:{a_idx}", "copy"])
+                cmd.extend([f"-c:a:{a_idx}", "aac" if exact_cut else "copy"])
         cmd.extend(["-avoid_negative_ts", "make_zero", str(output_clip_path)])
 
     try:
@@ -231,7 +246,8 @@ def export_lossless_highlight(
             "success": True,
             "clip_path": str(output_clip_path),
             "filename": output_clip_path.name,
-            "duration": dur
+            "duration": dur,
+            "exact_cut": exact_cut,
         }
     except subprocess.CalledProcessError as e:
         return {

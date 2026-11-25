@@ -505,6 +505,47 @@ def test_whisper_hallucination_preserves_high_confidence_laughter():
     assert h("kkkkk corre corre", 1.8, no_speech_prob=0.5, avg_logprob=-0.8, compression_ratio=2.6)
 
 
+def test_transcribe_block_respects_separate_tracks_override_and_callback():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    mic = np.full(160000, 1.0, dtype=np.float32)
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    model_single = _FakeWhisper({2.0: [_fake_seg(1.0, 2.5, "fala mix")]})
+    segs = t._transcribe_block(model_single, disc, mic, disc, 0.0, _dyn(True), "", separate_tracks=False)
+    assert model_single.calls == 1 and len(segs) == 1
+
+    labels = []
+    model_dual = _FakeWhisper({
+        1.0: [_fake_seg(1.0, 2.5, "fala host")],
+        2.0: [_fake_seg(2.0, 3.5, "fala discord")],
+    })
+    segs2 = t._transcribe_block(
+        model_dual, disc, mic, disc, 0.0, _dyn(True), "",
+        separate_tracks=True, track_status_cb=labels.append,
+    )
+    assert model_dual.calls == 2 and len(segs2) == 2
+    assert len(labels) == 2
+
+
+def test_export_lossless_highlight_exact_cut_uses_reencode_and_accurate_seek(tmp_path, monkeypatch):
+    import app.lossless_media as lm
+
+    captured = []
+    monkeypatch.setattr(lm, "CLIPS_DIR", tmp_path / "cortes")
+    monkeypatch.setattr(lm, "inspect_mkv_audio_norm", lambda p: {"audio_streams": 3, "is_normalized": True})
+    monkeypatch.setattr(lm.subprocess, "run", lambda cmd, **kw: captured.append(cmd))
+
+    res = lm.export_lossless_highlight(
+        tmp_path / "2026-11-20 20-00-00.mkv", 100.0, 115.0, "Jogada Insana",
+        boost_discord=True, keep_all_tracks=False, exact_cut=True,
+    )
+    assert res["success"] is True and res["exact_cut"] is True
+    cmd = captured[0]
+    assert "-c:v" in cmd and "libx264" in cmd
+    assert cmd.count("-ss") == 2  # seek rápido + seek preciso após -i
+
+
 def test_original_mix_backup_detection_and_finalize(tmp_path, monkeypatch):
     import json
     from types import SimpleNamespace
@@ -541,5 +582,6 @@ def test_original_mix_backup_detection_and_finalize(tmp_path, monkeypatch):
     assert res["success"] is True
     assert res["audio_streams"] == 4
     assert res["has_original_backup"] is True
+
 
 
