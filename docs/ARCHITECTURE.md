@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-O sistema separa completamente a camada de interface/API (`app/main.py`) da camada de processamento pesado (`app/worker.py`) para garantir responsividade contínua no painel web mesmo durante transcrições longas em GPU ou remuxing de arquivos 4K de dezenas de gigabytes.
+O sistema separa completamente a camada de interface/API (`app/main.py` e as rotas em `app/routers/`) da camada de processamento pesado (`app/worker.py`) para garantir responsividade contínua no painel web mesmo durante transcrições longas em GPU ou remuxing de arquivos 4K de dezenas de gigabytes.
 
 ## Fluxo do Pipeline
 
