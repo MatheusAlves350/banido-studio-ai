@@ -3,9 +3,9 @@
 
   O que faz (o programa fica em uma unica pasta, sem mexer no resto do computador):
     1. copia o programa para <InstallDir>\codigo
-    2. baixa um Python portatil (runtime\) e instala as dependencias (PyTorch com CUDA, se houver placa NVIDIA)
-    3. baixa FFmpeg e MKVToolNix portateis (tools\)
-    4. pergunta onde guardar os DADOS (gravacoes, cortes, modelos) e escolhe por padrao o disco com mais espaco
+    2. pergunta onde guardar os DADOS (gravacoes, cortes, modelos), com lista numerada e janela de escolha
+    3. baixa um Python portatil (runtime\) e instala as dependencias (PyTorch com CUDA, se houver placa NVIDIA)
+    4. baixa FFmpeg e MKVToolNix portateis (tools\)
     5. cria o .env, o arquivo Banido_Studio.bat e um atalho na Area de Trabalho
 
   Pode ser executado de novo a qualquer momento: ele atualiza o codigo e completa o que faltar,
@@ -111,6 +111,50 @@ function GbLivresDe([string]$caminho) {
     return $null
 }
 
+# Escolha da pasta de dados sem precisar digitar caminho:
+#   numero da lista (Enter = 1, o disco com mais espaco), letra do disco (ex.: E), P = janela de pastas,
+#   ou, se preferir, um caminho completo.
+function EscolherPastaDados($discos) {
+    for ($tentativa = 1; $tentativa -le 3; $tentativa++) {
+        Write-Host ''
+        $i = 0
+        foreach ($d in $discos) {
+            $i++
+            $marca = ''
+            if ($i -eq 1) { $marca = '   <- recomendado (mais espaco livre)' }
+            Write-Host ('    [{0}] Disco {1}   {2,7:N1} GB livres{3}' -f $i, $d.DeviceID, ($d.FreeSpace / 1GB), $marca)
+        }
+        Write-Host '    [P] Escolher outra pasta (abre uma janela)'
+        $r = Perguntar 'Digite o numero e aperte Enter (apenas Enter = opcao 1)' '1'
+
+        if ($r -match '^\d+$' -and [int]$r -ge 1 -and [int]$r -le $discos.Count) {
+            return (Join-Path ($discos[[int]$r - 1].DeviceID + '\') 'BanidoStudio\data')
+        }
+        if ($r -match '^[pP]$') {
+            try {
+                Add-Type -AssemblyName System.Windows.Forms
+                $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+                $dlg.Description = 'Escolha a pasta onde ficarao gravacoes, cortes e modelos de IA'
+                $dlg.ShowNewFolderButton = $true
+                if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                    $p = $dlg.SelectedPath
+                    if ($p.TrimEnd('\') -match '^[A-Za-z]:$') { $p = Join-Path $p 'BanidoStudio\data' }
+                    return $p
+                }
+            } catch { Write-Host '    Nao consegui abrir a janela de pastas.' -ForegroundColor Yellow }
+            continue
+        }
+        if ($r -match '^[A-Za-z]:?\\?$') {
+            $letra = $r.Substring(0, 1).ToUpper()
+            return ($letra + ':\BanidoStudio\data')
+        }
+        if ([IO.Path]::IsPathRooted($r)) { return $r }
+        Write-Host "    Nao entendi '$r'. Digite o NUMERO da lista (por exemplo: 1)." -ForegroundColor Yellow
+    }
+    if ($discos.Count -gt 0) { return (Join-Path ($discos[0].DeviceID + '\') 'BanidoStudio\data') }
+    return (Join-Path $CodigoDir 'data')
+}
+
 function LerEnv([string]$arq, [string]$chave) {
     if (-not (Test-Path $arq)) { return $null }
     foreach ($l in (Get-Content $arq)) {
@@ -132,7 +176,7 @@ function GravarEnv([string]$arq, [string]$chave, [string]$valor) {
         } else { $novas.Add($l) }
     }
     if (-not $achou -and $null -ne $valor) { $novas.Add("$chave=`"$valor`"") }
-    Set-Content -Path $arq -Value $novas -Encoding UTF8
+    [System.IO.File]::WriteAllLines($arq, $novas, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 try {
@@ -177,17 +221,8 @@ try {
         Write-Host 'Onde guardar os DADOS (gravacoes, cortes, modelos de IA, banco de dados)?' -ForegroundColor Cyan
         Write-Host "Recomendado: um disco com pelo menos $GbDados GB livres (de preferencia SSD)."
         $discos = @(DiscosFixos | Sort-Object FreeSpace -Descending)
-        foreach ($d in $discos) { Write-Host ("    {0}  {1,7:N1} GB livres de {2:N0} GB" -f $d.DeviceID, ($d.FreeSpace / 1GB), ($d.Size / 1GB)) }
 
-        if ($DadosDir) {
-            $sugestao = $DadosDir
-        } elseif ($discos.Count -gt 0) {
-            $sugestao = Join-Path ($discos[0].DeviceID + '\') 'BanidoStudio\data'
-        } else {
-            $sugestao = Join-Path $CodigoDir 'data'
-        }
-        $escolha = if ($DadosDir) { $DadosDir } else { Perguntar "Pasta de dados [Enter = $sugestao]" $sugestao }
-
+        $escolha = if ($DadosDir) { $DadosDir } else { EscolherPastaDados $discos }
         if (-not [IO.Path]::IsPathRooted($escolha)) { throw "Informe um caminho completo (ex.: E:\BanidoStudio\data). Recebi: $escolha" }
         New-Item -ItemType Directory -Force -Path $escolha | Out-Null
         $teste = Join-Path $escolha '.teste_escrita'
@@ -371,7 +406,7 @@ try {
     Write-Host ""
     Write-Host 'INSTALACAO CONCLUIDA!' -ForegroundColor Green
     Write-Host "Dados (gravacoes, cortes, modelos): $baseAtual"
-    Write-Host "Abra o atalho 'Banido Studio AI' na Area de Trabalho (ou $launcher)."
+    Write-Host "Para abrir depois, use o atalho 'Banido Studio AI' na Area de Trabalho."
     Write-Host 'Na primeira transcricao o modelo Whisper (cerca de 3 GB) sera baixado automaticamente, se ainda nao existir.'
     try { Stop-Transcript | Out-Null } catch {}
     exit 0

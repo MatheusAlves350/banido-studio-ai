@@ -1,14 +1,19 @@
 """
 Atualizador integrado ao GitHub.
 
-Funciona quando o projeto foi instalado com `git clone` (caso recomendado no README):
-1. `git fetch` da branch configurada no remoto `origin`;
-2. compara HEAD local com `origin/<branch>` e lista as novidades (commits);
-3. aplica com `git merge --ff-only` (nunca sobrescreve alterações locais nem cria merges);
-4. se `requirements.txt` mudou, roda `pip install -r requirements.txt` no Python atual;
-5. pede ao launcher (Iniciar_Banido_Studio.bat / start.sh) para reiniciar o servidor (código de saída 3).
+Funciona de duas formas:
 
-Quando o projeto foi baixado como ZIP (sem pasta .git), o atualizador apenas consulta a API
+1. Instalação com `git clone` (caso recomendado no README):
+   - `git fetch` da branch configurada no remoto `origin`;
+   - compara HEAD local com `origin/<branch>` e lista as novidades (commits);
+   - aplica com `git merge --ff-only` (nunca sobrescreve alterações locais nem cria merges);
+   - se `requirements.txt` mudou, roda `pip install -r requirements.txt` no Python atual;
+   - pede ao launcher (Iniciar_Banido_Studio.bat / start.sh) para reiniciar o servidor (código de saída 3).
+
+2. Instalação pelo BanidoStudio-Setup.exe (sem pasta .git, com arquivo VERSION): consulta a última release do GitHub
+   e, ao aplicar, baixa e executa o novo instalador em modo silencioso (ver app/release_updater.py).
+
+Quando o projeto foi baixado como ZIP (sem .git e sem VERSION), o atualizador apenas consulta a API
 pública do GitHub e mostra o link para baixar a versão nova manualmente.
 """
 import json
@@ -23,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app import release_updater
 from app.config import PROJECT_ROOT, LOGS_DIR
 
 UPDATE_REPO = (os.getenv("BANIDO_UPDATE_REPO") or "MatheusAlves350/banido-studio-ai").strip()
@@ -42,6 +48,7 @@ _apply_state: Dict[str, Any] = {
     "log": [],
     "needs_restart": False,
     "deps_updated": False,
+    "installer_started": False,
 }
 
 
@@ -77,6 +84,11 @@ def is_git_checkout(root: Optional[Path] = None) -> bool:
     return shutil.which("git") is not None and (base / ".git").exists()
 
 
+def is_installer_install(root: Optional[Path] = None) -> bool:
+    """Cópia feita pelo BanidoStudio-Setup.exe: sem Git e com arquivo VERSION."""
+    return (not is_git_checkout(root)) and bool(release_updater.read_installed_version(root))
+
+
 def _parse_log_lines(raw: str) -> List[Dict[str, str]]:
     commits = []
     for line in raw.splitlines():
@@ -88,8 +100,11 @@ def _parse_log_lines(raw: str) -> List[Dict[str, str]]:
 
 
 def get_local_version(root: Optional[Path] = None) -> Dict[str, Any]:
-    """Versão instalada: commit atual (sha curto, data e mensagem) e branch."""
+    """Versão instalada: commit atual (sha curto, data e mensagem) e branch, ou a versão do instalador."""
     if not is_git_checkout(root):
+        version = release_updater.read_installed_version(root)
+        if version:
+            return {"mode": "installed", "version": version, "sha": "", "date": "", "subject": "", "branch": ""}
         return {"mode": "zip", "sha": "", "date": "", "subject": "", "branch": ""}
     try:
         raw = _git_out(["log", "-1", f"--format=%h{_FIELD_SEP}%cI{_FIELD_SEP}%s"], root=root)
@@ -136,6 +151,7 @@ def check_for_updates(force: bool = False, root: Optional[Path] = None) -> Dict[
     result: Dict[str, Any] = {
         "repo": UPDATE_REPO,
         "repo_url": f"https://github.com/{UPDATE_REPO}",
+        "releases_url": f"https://github.com/{UPDATE_REPO}/releases/latest",
         "branch": UPDATE_BRANCH,
         "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "local": get_local_version(root),
@@ -151,9 +167,16 @@ def check_for_updates(force: bool = False, root: Optional[Path] = None) -> Dict[
     }
 
     if not is_git_checkout(root):
+        installed = release_updater.read_installed_version(root)
+        if installed:
+            # Instalação pelo BanidoStudio-Setup.exe: compara com a última release do GitHub.
+            result.update(release_updater.check(UPDATE_REPO, installed))
+            _store_cache(result, use_cache)
+            return result
+
         result["reason"] = (
             "Esta cópia foi baixada como ZIP (sem Git). Para atualizar, baixe a versão nova no GitHub "
-            "ou reinstale com 'git clone' para ganhar a atualização em 1 clique."
+            "ou instale pelo BanidoStudio-Setup.exe (página de Releases) para ganhar a atualização em 1 clique."
         )
         try:
             latest = _fetch_github_latest_commit()
@@ -256,6 +279,35 @@ def _log(msg: str, log_fh=None):
             pass
 
 
+def _build_torch_constraints(py_exe: str, tmp_dir: Path) -> Optional[Path]:
+    """Trava versões já instaladas de torch/torchaudio para o pip não trocar CUDA por CPU."""
+    kwargs: Dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "timeout": 30,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        res = subprocess.run([py_exe, "-m", "pip", "freeze", "--all"], **kwargs)
+    except Exception:
+        return None
+    if res.returncode != 0:
+        return None
+    pins = [
+        ln.strip()
+        for ln in (res.stdout or "").splitlines()
+        if ln.strip().startswith(("torch==", "torchaudio=="))
+    ]
+    if not pins:
+        return None
+    c_path = tmp_dir / "torch_constraints.txt"
+    c_path.write_text("\n".join(pins) + "\n", encoding="ascii")
+    return c_path
+
+
 def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOGS_DIR / f"update_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -278,7 +330,12 @@ def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
             deps_updated = False
             if info.get("requirements_changed"):
                 _log("As dependências mudaram. Instalando com pip (pode levar alguns minutos)...", log_fh)
-                pip_cmd = [python_exe or sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+                py_exe = python_exe or sys.executable
+                constraints_path = _build_torch_constraints(py_exe, LOGS_DIR)
+                pip_cmd = [py_exe, "-m", "pip", "install"]
+                if constraints_path is not None:
+                    pip_cmd.extend(["-c", str(constraints_path)])
+                pip_cmd.extend(["-r", "requirements.txt"])
                 pip_kwargs: Dict[str, Any] = {
                     "cwd": str(root or PROJECT_ROOT),
                     "stdout": log_fh,
@@ -287,7 +344,14 @@ def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
                 }
                 if os.name == "nt":
                     pip_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-                pip_res = subprocess.run(pip_cmd, **pip_kwargs)
+                try:
+                    pip_res = subprocess.run(pip_cmd, **pip_kwargs)
+                finally:
+                    if constraints_path is not None:
+                        try:
+                            constraints_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                 if pip_res.returncode != 0:
                     raise RuntimeError(
                         f"pip install terminou com código {pip_res.returncode}. "
@@ -318,6 +382,46 @@ def _run_apply(root: Optional[Path] = None, python_exe: Optional[str] = None):
             invalidate_cache()
 
 
+def _run_apply_installer(root: Optional[Path] = None, python_exe: Optional[str] = None):
+    """Instalação pelo .exe: baixa o novo instalador, abre em modo silencioso e encerra o servidor."""
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOGS_DIR / f"update_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    with open(log_path, "w", encoding="utf-8") as log_fh:
+        try:
+            info = check_for_updates(force=True, root=root)
+            if info.get("error"):
+                raise RuntimeError(info["error"])
+            if not info.get("can_apply"):
+                raise RuntimeError(info.get("reason") or "Atualização indisponível.")
+
+            _log(f"Baixando a versão {info.get('latest_version', '')} de {UPDATE_REPO}...", log_fh)
+            exe = release_updater.download_installer(info["asset_url"], UPDATE_REPO, progress=lambda m: _log(m, log_fh))
+            _log("Abrindo o instalador de atualização. Este painel vai fechar e reabrir sozinho quando terminar (alguns minutos).", log_fh)
+            release_updater.launch_installer(exe)
+
+            with _state_lock:
+                _apply_state.update({
+                    "state": "done",
+                    "needs_restart": False,
+                    "installer_started": True,
+                    "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "log_file": str(log_path),
+                })
+            # O servidor precisa fechar para liberar os arquivos; o instalador reabre o painel ao terminar.
+            schedule_restart(delay_sec=2.5, code=0)
+        except Exception as e:
+            with _state_lock:
+                _apply_state.update({
+                    "state": "error",
+                    "finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "log_file": str(log_path),
+                    "error": str(e),
+                })
+            _log(f"ERRO: {e}", log_fh)
+        finally:
+            invalidate_cache()
+
+
 def start_apply(root: Optional[Path] = None, python_exe: Optional[str] = None, background: bool = True) -> Dict[str, Any]:
     with _state_lock:
         if _apply_state["state"] == "running":
@@ -330,12 +434,14 @@ def start_apply(root: Optional[Path] = None, python_exe: Optional[str] = None, b
             "log": [],
             "needs_restart": False,
             "deps_updated": False,
+            "installer_started": False,
             "error": "",
         })
+    target = _run_apply_installer if is_installer_install(root) else _run_apply
     if background:
-        threading.Thread(target=_run_apply, args=(root, python_exe), daemon=True).start()
+        threading.Thread(target=target, args=(root, python_exe), daemon=True).start()
     else:
-        _run_apply(root, python_exe)
+        target(root, python_exe)
     return {"started": True, "message": "Atualização iniciada."}
 
 
@@ -344,9 +450,14 @@ def launched_by_launcher() -> bool:
     return (os.getenv("BANIDO_LAUNCHER") or "").strip() == "1"
 
 
-def schedule_restart(delay_sec: float = 0.8):
-    """Encerra o processo com o código de reinício; o launcher sobe o servidor de novo."""
+def schedule_restart(delay_sec: float = 0.8, code: int = RESTART_EXIT_CODE):
+    """Encerra o processo com o código dado; com o código de reinício, o launcher sobe o servidor de novo."""
     def _exit():
         time.sleep(delay_sec)
-        os._exit(RESTART_EXIT_CODE)
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        os._exit(code)
     threading.Thread(target=_exit, daemon=True).start()

@@ -27,11 +27,34 @@ if exist ".env" (
 )
 
 set "PYTHON_EXE="
-if exist "%APP_DIR%\.venv\Scripts\python.exe" set "PYTHON_EXE=%APP_DIR%\.venv\Scripts\python.exe"
+if defined BANIDO_PYTHON if exist "%BANIDO_PYTHON%" set "PYTHON_EXE=%BANIDO_PYTHON%"
+if not defined PYTHON_EXE if exist "%APP_DIR%\.venv\Scripts\python.exe" set "PYTHON_EXE=%APP_DIR%\.venv\Scripts\python.exe"
 if not defined PYTHON_EXE if exist "%APP_DIR%\venv\Scripts\python.exe" set "PYTHON_EXE=%APP_DIR%\venv\Scripts\python.exe"
 if not defined PYTHON_EXE (
     where python >nul 2>&1
     if !errorlevel! equ 0 set "PYTHON_EXE=python"
+)
+
+rem --- Se as dependencias nao estao instaladas, chama o instalador (Windows) e abre o programa instalado ---
+set "NEEDS_INSTALL="
+if not defined PYTHON_EXE set "NEEDS_INSTALL=1"
+if defined PYTHON_EXE (
+    "%PYTHON_EXE%" -c "import uvicorn, fastapi" >nul 2>&1
+    if !errorlevel! neq 0 set "NEEDS_INSTALL=1"
+)
+if defined NEEDS_INSTALL if not defined BANIDO_NO_AUTOINSTALL if exist "%APP_DIR%\Instalar_Banido_Studio.bat" (
+    echo.
+    echo Este programa ainda nao foi instalado neste computador.
+    echo Vou abrir o instalador agora. Ele faz tudo sozinho.
+    echo.
+    set "BANIDO_CHAMADO_PELO_INICIAR=1"
+    call "%APP_DIR%\Instalar_Banido_Studio.bat"
+    if !errorlevel! neq 0 exit /b 1
+    if exist "%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat" (
+        set "BANIDO_NO_AUTOINSTALL=1"
+        call "%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat"
+    )
+    exit /b 0
 )
 
 if not defined PYTHON_EXE (
@@ -66,7 +89,7 @@ set "OPEN_HOST=%HOST%"
 if "%OPEN_HOST%"=="0.0.0.0" set "OPEN_HOST=localhost"
 if "%OPEN_HOST%"=="127.0.0.1" set "OPEN_HOST=localhost"
 
-start /b powershell -NoProfile -Command "for($i=0;$i -lt 25;$i++){ Start-Sleep -Milliseconds 500; try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/api/status' -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -eq 200){ Start-Process 'http://%OPEN_HOST%:%PORT%'; break } } catch {} }"
+start /b powershell -NoProfile -Command "for($i=0;$i -lt 25;$i++){ Start-Sleep -Milliseconds 500; $ok=$false; try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/api/status' -UseBasicParsing -TimeoutSec 1; if($r.StatusCode -eq 200){ $ok=$true } } catch { if($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -in 401,403){ $ok=$true } }; if($ok){ Start-Process 'http://%OPEN_HOST%:%PORT%'; break } }"
 
 echo [2/2] Servidor ativo em: http://%OPEN_HOST%:%PORT%
 echo.

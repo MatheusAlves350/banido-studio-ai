@@ -318,8 +318,17 @@ def _is_whisper_hallucination(
         and avg_logprob < WHISPER_AVG_LOGPROB_LIMIT
     ):
         return True
-    if compression_ratio is not None and compression_ratio > WHISPER_COMPRESSION_RATIO_LIMIT:
-        return True
+    if compression_ratio is not None:
+        if compression_ratio > 3.0:
+            return True
+        if compression_ratio > WHISPER_COMPRESSION_RATIO_LIMIT:
+            low_conf = (
+                (avg_logprob is not None and avg_logprob < -0.5)
+                or (no_speech_prob is not None and no_speech_prob > 0.35)
+                or (avg_logprob is None and no_speech_prob is None)
+            )
+            if low_conf:
+                return True
 
     # Laço de repetição ("e aí e aí e aí e aí e aí ...").
     toks = norm.split()
@@ -606,10 +615,14 @@ def _drop_mic_bleed(host_segs: List[Dict[str, Any]], discord_segs: List[Dict[str
     """
     Remove falas do microfone que são só o eco do Discord saindo pelas caixas de som:
     mesmo trecho de tempo e texto praticamente igual ao da faixa Discord.
+    Reações curtas simultâneas ("boa", "morri", "calma") são preservadas.
     """
     kept = []
     for h in host_segs:
         h_norm = _normalize_for_hallucination(h["text"])
+        if len(h_norm) < 12 and len(h_norm.split()) < 3:
+            kept.append(h)
+            continue
         is_echo = False
         for d in discord_segs:
             if d["start"] > h["end"]:
@@ -692,12 +705,15 @@ def _transcribe_block(
     d_rms = block_dynamics["discord_rms"]
     host_segs: List[Dict[str, Any]] = []
     discord_segs: List[Dict[str, Any]] = []
+    ts_block = format_hhmmss(eff_offset_sec)
     if _track_has_speech(m_rms):
+        print(f"[WHISPER] [{ts_block}] Transcrevendo faixa isolada ({HOST_SPEAKER_NAME})...", flush=True)
         host_segs = [
             seg for seg in _run(mic_work, HOST_SPEAKER_NAME)
             if _mic_segment_is_real(m_rms, seg["start"] - eff_offset_sec, seg["end"] - eff_offset_sec)
         ]
     if _track_has_speech(d_rms):
+        print(f"[WHISPER] [{ts_block}] Transcrevendo faixa Discord...", flush=True)
         discord_segs = _run(disc_work, "Discord")
     return merge_track_segments(host_segs, discord_segs)
 

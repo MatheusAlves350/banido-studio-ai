@@ -1,4 +1,5 @@
 // Atualizações pelo GitHub: aviso de nova versão, lista de novidades e atualização em 1 clique.
+// Funciona para instalações com Git (commits) e para quem instalou pelo BanidoStudio-Setup.exe (releases).
 // Usa window.fetch (já com o token X-Banido-Token injetado por app.js).
 (function () {
     "use strict";
@@ -131,9 +132,10 @@
         if (!info) return;
         const local = info.local || {};
         const apply = info.apply || {};
+        const installed = local.mode === "installed";
 
         const shaEl = document.getElementById("upd-version-sha");
-        if (shaEl) shaEl.textContent = local.mode === "zip" ? "ZIP" : (local.sha || "?");
+        if (shaEl) shaEl.textContent = installed ? `v${local.version}` : (local.mode === "zip" ? "ZIP" : (local.sha || "?"));
         const dot = document.getElementById("upd-version-dot");
         if (dot) dot.hidden = !info.update_available;
 
@@ -146,24 +148,32 @@
             const show = info.update_available && apply.state !== "done" && newest !== dismissed;
             banner.hidden = !show && apply.state !== "done";
             const detail = document.getElementById("upd-banner-detail");
-            if (apply.state === "done") {
+            if (apply.state === "done" && apply.installer_started) {
+                banner.hidden = false;
+                banner.querySelector("strong").textContent = "Atualizando...";
+                detail.textContent = "O instalador foi aberto. Este painel vai reabrir sozinho quando terminar; não feche a janela do instalador.";
+            } else if (apply.state === "done") {
                 banner.hidden = false;
                 banner.querySelector("strong").textContent = "Atualização baixada.";
                 detail.textContent = "Reinicie o Banido Studio para começar a usar a nova versão.";
             } else if (show) {
-                detail.textContent = `${plural(info.behind, "melhoria", "melhorias")} desde a sua versão.`;
+                detail.textContent = installed
+                    ? `Versão ${info.latest_version || ""} pronta para instalar.`
+                    : `${plural(info.behind, "melhoria", "melhorias")} desde a sua versão.`;
             }
         }
 
         // Modal
         const modal = document.getElementById("upd-modal");
         if (!modal || modal.hidden) return;
-        document.getElementById("upd-local").textContent = local.mode === "zip"
-            ? "Cópia baixada como ZIP (sem Git)"
-            : `${local.sha || "?"} — ${local.subject || ""} (${fmtDate(local.date)})`;
+        document.getElementById("upd-local").textContent = installed
+            ? `Versão ${local.version} (instalada pelo instalador)`
+            : (local.mode === "zip"
+                ? "Cópia baixada como ZIP (sem Git)"
+                : `${local.sha || "?"} — ${local.subject || ""} (${fmtDate(local.date)})`);
         const link = document.getElementById("upd-repo-link");
-        link.href = info.repo_url || "#";
-        link.textContent = info.repo || "";
+        link.href = (installed && info.release_url) || (local.mode === "zip" && info.releases_url) || info.repo_url || "#";
+        link.textContent = (local.mode === "zip" && info.releases_url) ? `${info.repo || ""} (Releases)` : (info.repo || "");
         document.getElementById("upd-checked").textContent = info.checked_at || "";
 
         const summary = document.getElementById("upd-summary");
@@ -172,9 +182,12 @@
             summary.textContent = info.error;
             summary.classList.add("is-error");
         } else if (info.update_available) {
+            const titulo = installed
+                ? `Nova versão disponível: ${info.latest_version || ""}`
+                : plural(info.behind, "atualização disponível", "atualizações disponíveis");
             summary.textContent = info.can_apply
-                ? `${plural(info.behind, "atualização disponível", "atualizações disponíveis")}. Seus vídeos, transcrições e configurações não são afetados.`
-                : `${plural(info.behind, "atualização disponível", "atualizações disponíveis")}, mas não dá para aplicar automaticamente: ${info.reason}`;
+                ? `${titulo}. Seus vídeos, transcrições e configurações não são afetados.`
+                : `${titulo}, mas não dá para aplicar automaticamente: ${info.reason}`;
             if (!info.can_apply) summary.classList.add("is-warn");
         } else {
             summary.textContent = info.reason || "Você já está na versão mais recente.";
@@ -200,7 +213,7 @@
         document.getElementById("upd-apply").hidden = !(info.update_available && info.can_apply) || apply.state === "done";
         document.getElementById("upd-apply").disabled = busy;
         document.getElementById("upd-apply").textContent = busy ? "Atualizando..." : "Atualizar agora";
-        document.getElementById("upd-restart").hidden = apply.state !== "done";
+        document.getElementById("upd-restart").hidden = apply.state !== "done" || !!apply.installer_started;
         document.getElementById("upd-check").disabled = busy;
     }
 
@@ -220,7 +233,11 @@
     }
 
     async function applyUpdate() {
-        if (!confirm("Baixar e instalar a nova versão agora?\n\nO servidor precisa estar sem nenhum vídeo em processamento.")) return;
+        const installed = state.info && state.info.local && state.info.local.mode === "installed";
+        const msg = installed
+            ? "Baixar e instalar a nova versão agora?\n\nO painel vai fechar e reabrir sozinho quando o instalador terminar (alguns minutos). Seus dados e configurações são mantidos.\n\nO servidor precisa estar sem nenhum vídeo em processamento."
+            : "Baixar e instalar a nova versão agora?\n\nO servidor precisa estar sem nenhum vídeo em processamento.";
+        if (!confirm(msg)) return;
         try {
             const res = await api("/api/update/apply", "POST");
             state.info.apply = res.apply;
@@ -240,6 +257,12 @@
                 if (apply.state !== "running") {
                     clearInterval(state.pollTimer);
                     state.pollTimer = null;
+                    if (apply.state === "done" && apply.installer_started) {
+                        // O servidor vai fechar; o instalador reabre o painel. Espera até 15 min (downloads grandes).
+                        render();
+                        waitForServerAndReload(15 * 60 * 1000);
+                        return;
+                    }
                     await refresh(false);
                     if (apply.state === "error") alert(`A atualização falhou: ${apply.error || "veja o andamento"}`);
                 }
@@ -258,13 +281,13 @@
             const btn = document.getElementById("upd-restart");
             btn.disabled = true;
             btn.textContent = "Reiniciando...";
-            waitForServerAndReload();
+            waitForServerAndReload(120000);
         } catch (e) {
             alert(e.message);
         }
     }
 
-    function waitForServerAndReload() {
+    function waitForServerAndReload(timeoutMs) {
         let wentDown = false;
         const started = Date.now();
         const timer = setInterval(async () => {
@@ -277,9 +300,9 @@
             } catch (_) {
                 wentDown = true;
             }
-            if (Date.now() - started > 120000) {
+            if (Date.now() - started > timeoutMs) {
                 clearInterval(timer);
-                alert("O servidor não voltou em 2 minutos. Abra o Banido Studio de novo pelo atalho de inicialização.");
+                alert("O servidor não voltou a tempo. Abra o Banido Studio de novo pelo atalho da Área de Trabalho.");
             }
         }, 1000);
     }
