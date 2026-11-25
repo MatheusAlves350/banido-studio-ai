@@ -699,6 +699,16 @@ def process_video(video_id: int, req: ProcessRequest):
     )
 
 
+@app.post("/api/process/{video_id}/resume-override")
+def resume_paused_process(video_id: int):
+    """Cria flag para retomar imediatamente um processamento pausado por gravação/jogo ativo."""
+    work_dir = TEMP_DIR / f"video_{video_id}_work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    flag_path = work_dir / "force_resume.flag"
+    flag_path.write_text("1", encoding="utf-8")
+    return {"success": True, "message": "Retomada solicitada — o processamento continuará em instantes."}
+
+
 @app.post("/api/reanalyze-ai/{video_id}")
 def reanalyze_video_ai(video_id: int, req: ProcessRequest):
     return launch_worker_subprocess(

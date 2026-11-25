@@ -1332,6 +1332,18 @@ def _run_parallel_segmented_pipeline(
                 "discord_rms": d_rms
             }
 
+            from app.config import AUTO_PAUSE_ON_RECORDING, OBS_RECORDINGS_DIR, PAUSE_PROCESSES
+            if AUTO_PAUSE_ON_RECORDING:
+                from app.game_guard import wait_while_paused
+                base_pause_pct = 0.34 + min(0.44, (eff_offset_sec / total_duration) * 0.44)
+                wait_while_paused(
+                    obs_dir=OBS_RECORDINGS_DIR,
+                    resume_flag_path=temp_dir / "force_resume.flag",
+                    exclude_path=mkv_path,
+                    watched_processes=PAUSE_PROCESSES,
+                    progress_cb=(lambda m: progress_callback(m, base_pause_pct)) if progress_callback else None,
+                )
+
             def _track_cb(track_label: str):
                 if progress_callback:
                     base_pct = 0.34 + min(0.44, (eff_offset_sec / total_duration) * 0.44)

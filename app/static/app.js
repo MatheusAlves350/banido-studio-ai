@@ -264,6 +264,7 @@ function setupEventListeners() {
     document.getElementById("btn-start-process").addEventListener("click", startProcessing);
     document.getElementById("btn-normalize-audio").addEventListener("click", normalizeVideoAudio);
     document.getElementById("btn-remove-audio-backup")?.addEventListener("click", removeVideoAudioBackup);
+    document.getElementById("btn-resume-paused")?.addEventListener("click", resumePausedProcessing);
     document.getElementById("btn-normalize-batch").addEventListener("click", toggleBatchAudioNormalize);
     document.getElementById("btn-reanalyze-ai").addEventListener("click", reanalyzeAiOnly);
     document.getElementById("btn-retry-ai-only").addEventListener("click", reanalyzeAiOnly);
@@ -829,7 +830,12 @@ async function fetchVideoDetails(videoId, includeData = true) {
             btnReset.className = "btn-secondary btn-danger";
             btnReset.innerText = "🛑 Cancelar Processamento";
 
-            document.getElementById("progress-msg").innerText = v.progress_msg || "Processando...";
+            const pMsg = v.progress_msg || "Processando...";
+            document.getElementById("progress-msg").innerText = pMsg;
+            const btnResumePaused = document.getElementById("btn-resume-paused");
+            if (btnResumePaused) {
+                btnResumePaused.style.display = pMsg.startsWith("⏸️ Pausado") ? "inline-flex" : "none";
+            }
             const pct = Math.round((v.progress_pct || 0) * 100);
             document.getElementById("progress-pct").innerText = `${pct}%`;
             document.getElementById("progress-bar-fill").style.width = `${pct}%`;
@@ -2205,6 +2211,28 @@ async function removeVideoAudioBackup() {
         if (btn) {
             btn.disabled = false;
             btn.textContent = origTxt;
+        }
+    }
+}
+
+async function resumePausedProcessing() {
+    if (!activeVideoId) return;
+    const btn = document.getElementById("btn-resume-paused");
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = "⏳ Retomando...";
+        }
+        const res = await fetch(`/api/process/${activeVideoId}/resume-override`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        if (btn) btn.style.display = "none";
+    } catch (e) {
+        alert("Não foi possível retomar o processamento: " + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = "▶️ Continuar mesmo assim";
         }
     }
 }
