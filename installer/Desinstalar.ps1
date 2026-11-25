@@ -74,7 +74,7 @@ try {
         if ($r -notmatch '^[sSyY]') { Write-Host 'Cancelado. Nada foi alterado.'; exit 0 }
         Write-Host ''
         Write-Host 'Deseja apagar TAMBEM os dados? Isso NAO pode ser desfeito.' -ForegroundColor Yellow
-        $r = Perguntar 'Digite APAGAR para apagar os dados, ou apenas Enter para mantê-los' ''
+        $r = Perguntar 'Digite APAGAR para apagar os dados, ou apenas Enter para mante-los' ''
         $apagarDados = ($r -ceq 'APAGAR')
     }
 
