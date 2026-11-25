@@ -23,12 +23,6 @@ jobs:
           $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" installer\banido_studio.iss
 
-      - name: Gerar pacote ZIP (alternativa sem instalador)
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path installer\build\zip | Out-Null
-          git archive --format=zip --output=installer\build\BanidoStudio-Fonte.zip HEAD
-
       - uses: actions/upload-artifact@v4
         with:
           name: BanidoStudio-Setup
@@ -38,7 +32,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            installer/build/BanidoStudio-Setup.exe
-            installer/build/BanidoStudio-Fonte.zip
+          files: installer/build/BanidoStudio-Setup.exe
           generate_release_notes: true
+          body: |
+            ## Como instalar (Windows, para quem não programa)
+
+            1. Role até **Assets** (no fim desta página) e baixe **`BanidoStudio-Setup.exe`**.
+            2. Dê dois cliques e siga o assistente. Se o Windows avisar "O Windows protegeu o computador", clique em **Mais informações** e depois em **Executar assim mesmo**.
+            3. Aguarde (10 a 30 minutos; downloads grandes) e abra o atalho **Banido Studio AI**.
+
+            **Não baixe "Source code (zip)" ou "Source code (tar.gz)"**: são apenas o código-fonte, para programadores.
+
+            Requisitos: Windows 10/11 de 64 bits, placa NVIDIA (recomendado) e cerca de 15 GB livres.
