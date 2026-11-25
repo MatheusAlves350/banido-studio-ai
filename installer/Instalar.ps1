@@ -129,8 +129,31 @@ try {
         ExecutarPython @('-m', 'pip', 'install', '--no-warn-script-location', 'torch', 'torchaudio', '--index-url', $TorchIndexUrl)
     } else {
         Write-Host '    Nenhuma placa NVIDIA detectada: instalando PyTorch para CPU (a transcricao sera bem mais lenta).' -ForegroundColor Yellow
+        ExecutarPython @('-m', 'pip', 'install', '--no-warn-script-location', 'torch', 'torchaudio')
     }
-    ExecutarPython @('-m', 'pip', 'install', '--no-warn-script-location', '-r', (Join-Path $CodigoDir 'requirements.txt'))
+
+    # Trava as versoes do PyTorch recem instaladas: sem isso, o pip pode trocar o PyTorch com CUDA
+    # por outro (sem CUDA) ao instalar as demais bibliotecas.
+    $freeze = ExecutarQuieto $PythonExe @('-m', 'pip', 'freeze', '--all')
+    $travas = @($freeze -split "`r?`n" | Where-Object { $_ -match '^(torch|torchaudio)==' })
+    $depArgs = @('-m', 'pip', 'install', '--no-warn-script-location')
+    if ($travas.Count -gt 0) {
+        $arqTravas = Join-Path $CacheDir 'constraints.txt'
+        Set-Content -Path $arqTravas -Value $travas -Encoding ASCII
+        $depArgs += @('-c', $arqTravas)
+    }
+    $depArgs += @('-r', (Join-Path $CodigoDir 'requirements.txt'))
+    ExecutarPython $depArgs
+
+    # Rede de seguranca: se mesmo assim o PyTorch ficou sem CUDA, reinstala so ele (sem mexer nas outras bibliotecas).
+    if ($temNvidia) {
+        $ver = ExecutarQuieto $PythonExe @('-c', 'import torch; print(torch.__version__)')
+        $ver = ($ver -split "`r?`n" | Select-Object -Last 1)
+        if ($ver -notmatch '\+cu') {
+            Write-Host "    PyTorch sem CUDA detectado ($ver). Reinstalando a versao com CUDA..." -ForegroundColor Yellow
+            ExecutarPython @('-m', 'pip', 'install', '--no-warn-script-location', '--force-reinstall', '--no-deps', 'torch', 'torchaudio', '--index-url', $TorchIndexUrl)
+        }
+    }
 
     # ------------------------------------------------------------------ 4. ffmpeg
     Etapa '4/6' 'Baixando o FFmpeg...'
@@ -202,11 +225,11 @@ try {
     }
 
     # Verificacao rapida
-    $cuda = ExecutarQuieto $PythonExe @('-c', "import torch; print('sim' if torch.cuda.is_available() else 'nao')")
-    $cuda = ($cuda -split "`r?`n" | Select-Object -Last 1)
+    $info = ExecutarQuieto $PythonExe @('-c', "import torch; print(torch.__version__, 'sim' if torch.cuda.is_available() else 'nao')")
+    $info = ($info -split "`r?`n" | Select-Object -Last 1)
     Write-Host ""
-    Write-Host "CUDA disponivel no PyTorch: $cuda"
-    if ($temNvidia -and $cuda -ne 'sim') { Write-Host 'Aviso: placa NVIDIA encontrada, mas o PyTorch nao a enxerga. Atualize o driver da NVIDIA.' -ForegroundColor Yellow }
+    Write-Host "PyTorch / CUDA disponivel: $info"
+    if ($temNvidia -and $info -notmatch 'sim$') { Write-Host 'Aviso: placa NVIDIA encontrada, mas o PyTorch nao a enxerga. Atualize o driver da NVIDIA.' -ForegroundColor Yellow }
 
     Write-Host ""
     Write-Host 'INSTALACAO CONCLUIDA!' -ForegroundColor Green
