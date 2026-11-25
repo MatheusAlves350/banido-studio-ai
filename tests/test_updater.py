@@ -109,14 +109,16 @@ def test_update_endpoints_require_token_and_idle(monkeypatch):
     monkeypatch.setattr(app_main.updater, "check_for_updates", lambda force=False: {"update_available": False, "local": {}})
     client = TestClient(app_main.app)
 
-    r = client.get("/api/update/status")
+    # Desde a correção da issue #7, o GET de status também exige o token (ele pode disparar git fetch)
+    assert client.get("/api/update/status").status_code == 403
+    headers = {"X-Banido-Token": app_main.API_AUTH_TOKEN}
+    r = client.get("/api/update/status", headers=headers)
     assert r.status_code == 200
     assert "apply" in r.json()
 
     assert client.post("/api/update/apply").status_code == 403
     assert client.post("/api/update/restart").status_code == 403
 
-    headers = {"X-Banido-Token": app_main.API_AUTH_TOKEN}
     monkeypatch.delenv("BANIDO_LAUNCHER", raising=False)
     r = client.post("/api/update/restart", headers=headers)
     assert r.status_code == 200

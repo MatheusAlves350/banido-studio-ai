@@ -25,6 +25,7 @@
         try {
             const res = await fetch("/api/setup/check", { cache: "no-store" });
             const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             renderSetup(data);
         } catch (e) {
             summary.textContent = "Não foi possível verificar agora. O servidor está aberto?";
