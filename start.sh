@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Todo o script fica dentro de main() e é chamado na ÚLTIMA linha: o bash lê a função inteira
+# antes de executar, então uma atualização via Git que reescreva este arquivo não quebra o laço.
+main() {
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,4 +46,19 @@ echo "Python:    $PYTHON_EXE"
 echo "URL:       http://${HOST}:${PORT}"
 echo "======================================================="
 
-exec "$PYTHON_EXE" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
+# Código de saída 3 = o painel pediu reinício (ex.: após atualizar pelo GitHub).
+export BANIDO_LAUNCHER=1
+while true; do
+    set +e
+    "$PYTHON_EXE" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
+    code=$?
+    set -e
+    if [ "$code" -ne 3 ]; then
+        return "$code"
+    fi
+    echo
+    echo "[ATUALIZAÇÃO] Reiniciando o Banido Studio com a nova versão..."
+    echo
+done
+}
+main "$@"; exit $?

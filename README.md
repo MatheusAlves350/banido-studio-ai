@@ -189,6 +189,23 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 ---
 
+## 🔄 Atualizações pelo GitHub
+
+O painel avisa quando existe uma versão nova no GitHub e atualiza com 1 clique:
+
+1. Uma faixa **"Nova versão disponível"** aparece no topo (ou clique em **Versão** no rodapé do menu lateral).
+2. **Ver novidades e atualizar** mostra a lista do que mudou.
+3. **Atualizar agora** baixa o código (`git fetch` + `git merge --ff-only`) e, se o `requirements.txt` mudou, roda `pip install -r requirements.txt` sozinho.
+4. **Reiniciar para concluir** reinicia o servidor e recarrega a página.
+
+Regras de segurança:
+- Só funciona em instalações feitas com **`git clone`** (cópias baixadas como ZIP recebem apenas o aviso com o link).
+- A atualização é **bloqueada** se houver vídeo em processamento, arquivos do projeto alterados localmente ou commits locais não publicados — nada é sobrescrito.
+- Seus dados (`data/`, `.env`, gravações, banco de vozes) ficam fora do Git e não são tocados.
+- O reinício automático depende de abrir o sistema pelo `Iniciar_Banido_Studio.bat` ou `./start.sh` (eles reiniciam o servidor quando ele sai com o código 3).
+
+---
+
 ## 🛠️ Solução de Problemas
 
 - **GPU com 4 GB ou 6 GB de VRAM (Out of Memory no Whisper)**:
@@ -220,6 +237,7 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 │   ├── mosaic_generator.py   # Folha de contato 4x4 para visão multimodal
 │   ├── ai_director.py        # Prompts, Gemini, NVIDIA NIM, Claude Web e metadados YT
 │   ├── lossless_media.py     # Normalização YouTube Gold, cortes e capítulos MKV
+│   ├── updater.py            # Verificação e aplicação de atualizações via GitHub (git)
 │   ├── obs_fixer.py          # Utilitário opcional de roteamento multi-track no OBS
 │   └── static/               # Interface Web (index.html, app.js, style.css)
 ├── docs/
@@ -240,7 +258,10 @@ O utilitário opcional `python -m app.obs_fixer` faz backup da cena ativa do OBS
 
 ## 🧪 Testes Automatizados
 
+Os testes não precisam de GPU, PyTorch nem Whisper — só das dependências leves de `requirements-dev.txt` (as mesmas usadas no GitHub Actions):
+
 ```bash
-pip install pytest httpx
+pip install -r requirements-dev.txt
 pytest -q
+ruff check app tests --select E9,F63,F7,F82,F401,F541,F841
 ```
