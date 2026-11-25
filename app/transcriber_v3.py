@@ -1,6 +1,7 @@
 import os
 import re
 import gc
+import difflib
 import json
 import time
 import shutil
@@ -11,7 +12,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional, Tuple
 from app.config import (
     MODELS_DIR, HOST_SPEAKER_NAME,
-    WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_LANGUAGE
+    WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_LANGUAGE,
+    SEPARATE_TRACK_TRANSCRIPTION
 )
 from app.audio_pipeline import (
     is_host_speaking, extract_audio_tracks, analyze_audio_dynamics,
@@ -427,7 +429,8 @@ def _refine_whisper_segment(
     dynamics: Dict[str, Any],
     use_local_dynamics: bool = True,
     max_chars: int = 92,
-    max_dur_sec: float = 8.5
+    max_dur_sec: float = 8.5,
+    forced_speaker: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Usa `word_timestamps` do Whisper large-v3 para:
@@ -453,6 +456,8 @@ def _refine_whisper_segment(
     has_iso = bool(dynamics.get("has_isolated_mic", True))
 
     def _eval_speaker(loc_s: float, loc_e: float) -> str:
+        if forced_speaker is not None:
+            return forced_speaker  # transcrição por faixa: o locutor é a própria faixa
         t_s = loc_s if use_local_dynamics else (loc_s + chunk_offset_sec)
         t_e = loc_e if use_local_dynamics else (loc_e + chunk_offset_sec)
         return HOST_SPEAKER_NAME if is_host_speaking(t_s, t_e, dynamics) else "Discord"
@@ -568,6 +573,133 @@ def _refine_whisper_segment(
         })
 
     return refined
+
+
+def _rms_slice(rms: np.ndarray, start_sec: float, end_sec: float) -> np.ndarray:
+    s_idx = max(0, int(start_sec * 10))
+    e_idx = max(s_idx + 1, int(end_sec * 10))
+    return rms[s_idx:min(e_idx, len(rms))]
+
+
+def _mic_segment_is_real(mic_rms: np.ndarray, start_sec: float, end_sec: float) -> bool:
+    """Confirma que o microfone realmente estava ativo no trecho (descarta ruído e eco)."""
+    sl = _rms_slice(mic_rms, start_sec, end_sec)
+    if len(sl) == 0:
+        return False
+    return float(np.mean(sl > -48.0)) >= 0.20 and float(np.percentile(sl, 75)) > -46.0
+
+
+def _track_has_speech(rms: Optional[np.ndarray], min_active_frac: float = 0.02) -> bool:
+    """Evita rodar o Whisper numa faixa praticamente muda (economiza GPU)."""
+    if rms is None or len(rms) == 0:
+        return False
+    return float(np.mean(rms > -48.0)) >= min_active_frac
+
+
+def _time_overlap(a: Dict[str, Any], b: Dict[str, Any]) -> float:
+    inter = min(a["end"], b["end"]) - max(a["start"], b["start"])
+    shorter = max(0.05, min(a["end"] - a["start"], b["end"] - b["start"]))
+    return max(0.0, inter) / shorter
+
+
+def _drop_mic_bleed(host_segs: List[Dict[str, Any]], discord_segs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove falas do microfone que são só o eco do Discord saindo pelas caixas de som:
+    mesmo trecho de tempo e texto praticamente igual ao da faixa Discord.
+    """
+    kept = []
+    for h in host_segs:
+        h_norm = _normalize_for_hallucination(h["text"])
+        is_echo = False
+        for d in discord_segs:
+            if d["start"] > h["end"]:
+                break
+            if _time_overlap(h, d) < 0.5:
+                continue
+            ratio = difflib.SequenceMatcher(None, h_norm, _normalize_for_hallucination(d["text"])).ratio()
+            if ratio >= 0.8:
+                is_echo = True
+                break
+        if not is_echo:
+            kept.append(h)
+    return kept
+
+
+def merge_track_segments(host_segs: List[Dict[str, Any]], discord_segs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Junta as falas das duas faixas em ordem cronológica, preservando as que se sobrepõem."""
+    discord_sorted = sorted(discord_segs, key=lambda x: (x["start"], x["end"]))
+    host_clean = _drop_mic_bleed(sorted(host_segs, key=lambda x: (x["start"], x["end"])), discord_sorted)
+    merged = host_clean + discord_sorted
+    merged.sort(key=lambda x: (x["start"], x["end"]))
+    overlapped_ids = set()
+    for i, a in enumerate(merged):
+        for b in merged[i + 1:]:
+            if b["start"] >= a["end"]:
+                break
+            if a["speaker"] != b["speaker"]:
+                overlapped_ids.update((id(a), id(b)))
+    for seg in merged:
+        if id(seg) in overlapped_ids:
+            seg["overlap"] = True
+    return merged
+
+
+def _transcribe_block(
+    model: Any,
+    mix_chunk: np.ndarray,
+    mic_work: Optional[np.ndarray],
+    disc_work: np.ndarray,
+    eff_offset_sec: float,
+    block_dynamics: Dict[str, Any],
+    initial_prompt: str,
+) -> List[Dict[str, Any]]:
+    """
+    Transcreve um bloco. Com microfone isolado (e SEPARATE_TRACK_TRANSCRIPTION ligado) roda o Whisper
+    uma vez por faixa (Anfitrião e Discord), preservando falas simultâneas; sem mic isolado
+    (1 faixa ou 2 faixas duplicadas) mantém o mix único com classificação acústica.
+    """
+    def _run(audio: np.ndarray, forced: Optional[str]) -> List[Dict[str, Any]]:
+        gen, _ = model.transcribe(
+            audio,
+            language=WHISPER_LANGUAGE,
+            beam_size=5,
+            best_of=5,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=400, speech_pad_ms=250),
+            word_timestamps=True,
+            condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+            hallucination_silence_threshold=WHISPER_HALLUCINATION_SILENCE_THRESHOLD,
+            initial_prompt=initial_prompt
+        )
+        out: List[Dict[str, Any]] = []
+        for s in gen:
+            out.extend(_refine_whisper_segment(
+                s, eff_offset_sec, block_dynamics, use_local_dynamics=True, forced_speaker=forced
+            ))
+        return out
+
+    separate = (
+        SEPARATE_TRACK_TRANSCRIPTION
+        and bool(block_dynamics.get("has_isolated_mic"))
+        and mic_work is not None
+        and len(mic_work) > 0
+    )
+    if not separate:
+        return _run(mix_chunk, None)
+
+    m_rms = block_dynamics["mic_rms"]
+    d_rms = block_dynamics["discord_rms"]
+    host_segs: List[Dict[str, Any]] = []
+    discord_segs: List[Dict[str, Any]] = []
+    if _track_has_speech(m_rms):
+        host_segs = [
+            seg for seg in _run(mic_work, HOST_SPEAKER_NAME)
+            if _mic_segment_is_real(m_rms, seg["start"] - eff_offset_sec, seg["end"] - eff_offset_sec)
+        ]
+    if _track_has_speech(d_rms):
+        discord_segs = _run(disc_work, "Discord")
+    return merge_track_segments(host_segs, discord_segs)
 
 
 def run_transcription_pipeline(
@@ -1174,49 +1306,36 @@ def _run_parallel_segmented_pipeline(
                 "discord_rms": d_rms
             }
 
-            segments_gen, info = model.transcribe(
-                mix_chunk,
-                language=WHISPER_LANGUAGE,
-                beam_size=5,
-                best_of=5,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=400, speech_pad_ms=250),
-                word_timestamps=True,
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                hallucination_silence_threshold=WHISPER_HALLUCINATION_SILENCE_THRESHOLD,
-                initial_prompt=initial_prompt
+            block_segs = _transcribe_block(
+                model, mix_chunk, mic_work, disc_work,
+                eff_offset_sec, block_dynamics, initial_prompt
             )
 
-            for s in segments_gen:
-                refined_segs = _refine_whisper_segment(
-                    s, eff_offset_sec, block_dynamics, use_local_dynamics=True
-                )
-                for seg_dict in refined_segs:
-                    seg_counter += 1
-                    if seg_dict["speaker"] == HOST_SPEAKER_NAME:
-                        host_count += 1
-                    else:
-                        discord_count += 1
-                    raw_segments.append(seg_dict)
+            for seg_dict in block_segs:
+                seg_counter += 1
+                if seg_dict["speaker"] == HOST_SPEAKER_NAME:
+                    host_count += 1
+                else:
+                    discord_count += 1
+                raw_segments.append(seg_dict)
 
-                    abs_start = seg_dict["start"]
-                    abs_end = seg_dict["end"]
-                    text_clean = seg_dict["text"]
-                    ts_cur = format_hhmmss(abs_end)
-                    preview = text_clean if len(text_clean) <= 85 else text_clean[:82] + "..."
-                    print(f"[FALA #{seg_counter:04d}] [{format_hhmmss(abs_start)} -> {ts_cur}] [{seg_dict['speaker']}]: {preview}", flush=True)
+                abs_start = seg_dict["start"]
+                abs_end = seg_dict["end"]
+                text_clean = seg_dict["text"]
+                ts_cur = format_hhmmss(abs_end)
+                preview = text_clean if len(text_clean) <= 85 else text_clean[:82] + "..."
+                print(f"[FALA #{seg_counter:04d}] [{format_hhmmss(abs_start)} -> {ts_cur}] [{seg_dict['speaker']}]: {preview}", flush=True)
 
-                    now_w = time.time()
-                    if progress_callback and (now_w - last_cb_wall) >= 1.5:
-                        last_cb_wall = now_w
-                        current_pct = 0.34 + min(0.44, (abs_end / total_duration) * 0.44)
-                        progress_callback(
-                            f"Transcrevendo bloco {idx + 1}/{est_num_chunks} [{ts_cur} / {total_hhmmss}] ({len(raw_segments)} falas)...",
-                            current_pct
-                        )
+                now_w = time.time()
+                if progress_callback and (now_w - last_cb_wall) >= 1.5:
+                    last_cb_wall = now_w
+                    current_pct = 0.34 + min(0.44, (abs_end / total_duration) * 0.44)
+                    progress_callback(
+                        f"Transcrevendo bloco {idx + 1}/{est_num_chunks} [{ts_cur} / {total_hhmmss}] ({len(raw_segments)} falas)...",
+                        current_pct
+                    )
 
-            del segments_gen, info, full_mix, mix_chunk, disc_audio, mic_audio, disc_work, mic_work, m_rms, d_rms, block_dynamics
+            del block_segs, full_mix, mix_chunk, disc_audio, mic_audio, disc_work, mic_work, m_rms, d_rms, block_dynamics
             gc.collect()
 
             completed_chunks = idx + 1
@@ -1247,27 +1366,17 @@ def _run_parallel_segmented_pipeline(
             m_rms = compute_rms_100ms(carryover_mic, wav_sr) if carryover_mic is not None else np.zeros_like(d_rms)
             block_dynamics = {"has_isolated_mic": has_isolated_mic, "mic_rms": m_rms, "discord_rms": d_rms}
             mix_tail = build_balanced_mix_array(carryover_mic, carryover_disc, has_isolated_mic=has_isolated_mic)
-            segments_gen, _ = model.transcribe(
-                mix_tail,
-                language=WHISPER_LANGUAGE,
-                beam_size=5,
-                best_of=5,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=400, speech_pad_ms=250),
-                word_timestamps=True,
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                hallucination_silence_threshold=WHISPER_HALLUCINATION_SILENCE_THRESHOLD,
-                initial_prompt=initial_prompt
+            tail_segs = _transcribe_block(
+                model, mix_tail, carryover_mic, carryover_disc,
+                eff_offset_sec, block_dynamics, initial_prompt
             )
-            for s in segments_gen:
-                for seg_dict in _refine_whisper_segment(s, eff_offset_sec, block_dynamics, use_local_dynamics=True):
-                    seg_counter += 1
-                    if seg_dict["speaker"] == HOST_SPEAKER_NAME:
-                        host_count += 1
-                    else:
-                        discord_count += 1
-                    raw_segments.append(seg_dict)
+            for seg_dict in tail_segs:
+                seg_counter += 1
+                if seg_dict["speaker"] == HOST_SPEAKER_NAME:
+                    host_count += 1
+                else:
+                    discord_count += 1
+                raw_segments.append(seg_dict)
             carryover_disc = None
             carryover_mic = None
 

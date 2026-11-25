@@ -129,6 +129,7 @@ Todas as configurações da instância ficam centralizadas em [`app/config.py`](
 | `BANIDO_WHISPER_DEVICE` | `auto` | Dispositivo (`auto`, `cuda` ou `cpu`) |
 | `BANIDO_WHISPER_COMPUTE_TYPE` | `auto` | Precisão (`auto`, `float16`, `int8_float16`, `int8`) |
 | `BANIDO_WHISPER_LANGUAGE` | `pt` | Idioma da transcrição (`pt`, `en`, `auto`, etc.) |
+| `BANIDO_SEPARATE_TRACKS` | `1` | Com microfone isolado (6 ou 2 faixas), transcreve microfone e Discord separadamente e mantém falas sobrepostas. Usa o Whisper duas vezes por bloco (mais lento, mais fiel). `0` volta ao mix único. |
 | `GOOGLE_API_KEY` | *(vazio)* | Chave da API Google Gemini (opcional; também pode ser salva pela interface) |
 | `NVIDIA_API_KEY` | *(vazio)* | Chave da API NVIDIA NIM (opcional; também pode ser salva pela interface) |
 

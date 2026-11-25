@@ -247,3 +247,75 @@ def test_whisper_hallucination_confidence_metrics():
     assert not h("hmm tá bom então", 1.5, no_speech_prob=0.9, avg_logprob=-0.3)
     assert h("blá blá", 1.0, compression_ratio=3.1)
     assert h("e aí " * 10, 5.0)
+
+
+def _fake_seg(start, end, text):
+    from types import SimpleNamespace as NS
+    return NS(start=start, end=end, text=text, words=[], no_speech_prob=0.0, avg_logprob=-0.2, compression_ratio=1.2)
+
+
+class _FakeWhisper:
+    """Devolve falas diferentes conforme o áudio recebido (mic = 1.0, discord = 2.0)."""
+    def __init__(self, by_marker):
+        self.by_marker = by_marker
+        self.calls = 0
+
+    def transcribe(self, audio, **kw):
+        import numpy as np
+        self.calls += 1
+        marker = float(np.max(audio))
+        return iter(self.by_marker.get(marker, [])), None
+
+
+def _dyn(has_iso, mic_active=True):
+    import numpy as np
+    n = 100  # 10 s
+    mic = np.full(n, -30.0 if mic_active else -90.0)
+    disc = np.full(n, -30.0)
+    return {"has_isolated_mic": has_iso, "mic_rms": mic, "discord_rms": disc}
+
+
+def test_separate_tracks_keep_overlapping_speech():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    model = _FakeWhisper({
+        1.0: [_fake_seg(1.0, 4.0, "eu acho que vai dar certo")],
+        2.0: [_fake_seg(3.0, 6.0, "não cara, vamos pelo outro lado")],
+    })
+    mic = np.full(160000, 1.0, dtype=np.float32)
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    segs = t._transcribe_block(model, disc, mic, disc, 10.0, _dyn(True), "")
+    assert model.calls == 2
+    assert [s["speaker"] for s in segs] == [t.HOST_SPEAKER_NAME, "Discord"]
+    assert [s["start"] for s in segs] == [11.0, 13.0]  # offset do bloco aplicado
+    assert all(s.get("overlap") for s in segs)  # 13.0-14.0 se sobrepõem
+
+
+def test_separate_tracks_drop_mic_echo_and_silent_mic():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    eco = {
+        1.0: [_fake_seg(1.0, 4.0, "Vamos pelo outro lado, pessoal!")],
+        2.0: [_fake_seg(1.1, 4.0, "vamos pelo outro lado pessoal")],
+    }
+    mic = np.full(160000, 1.0, dtype=np.float32)
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    segs = t._transcribe_block(_FakeWhisper(eco), disc, mic, disc, 0.0, _dyn(True), "")
+    assert [s["speaker"] for s in segs] == ["Discord"]  # eco do Discord no mic removido
+
+    model = _FakeWhisper(eco)
+    segs = t._transcribe_block(model, disc, mic, disc, 0.0, _dyn(True, mic_active=False), "")
+    assert model.calls == 1  # mic mudo: Whisper roda só na faixa Discord
+    assert [s["speaker"] for s in segs] == ["Discord"]
+
+
+def test_single_mix_when_no_isolated_mic():
+    import numpy as np
+    from app import transcriber_v3 as t
+
+    model = _FakeWhisper({2.0: [_fake_seg(0.0, 2.0, "fala qualquer")]})
+    disc = np.full(160000, 2.0, dtype=np.float32)
+    segs = t._transcribe_block(model, disc, None, disc, 0.0, _dyn(False), "")
+    assert model.calls == 1 and len(segs) == 1

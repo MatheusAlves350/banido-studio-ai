@@ -73,6 +73,9 @@ ALLOWED_HOSTS = _build_allowed_hosts()
 WHISPER_MODEL_SIZE = (os.getenv("BANIDO_WHISPER_MODEL") or "large-v3").strip() or "large-v3"
 WHISPER_DEVICE = (os.getenv("BANIDO_WHISPER_DEVICE") or "auto").strip().lower() or "auto"
 WHISPER_COMPUTE_TYPE = (os.getenv("BANIDO_WHISPER_COMPUTE_TYPE") or "auto").strip().lower() or "auto"
+# Transcrição separada por faixa (microfone do anfitrião x Discord) quando há mic isolado.
+# Detecta falas sobrepostas, mas roda o Whisper uma vez por faixa. "0" volta ao modo de mix único.
+SEPARATE_TRACK_TRANSCRIPTION = (os.getenv("BANIDO_SEPARATE_TRACKS") or "1").strip().lower() not in ("0", "false", "no", "nao", "não")
 _raw_lang = (os.getenv("BANIDO_WHISPER_LANGUAGE") or "pt").strip()
 WHISPER_LANGUAGE: Optional[str] = None if _raw_lang.lower() in ("auto", "none", "") else _raw_lang
 
