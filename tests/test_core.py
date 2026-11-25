@@ -214,3 +214,80 @@ def test_single_pass_filter_graph_and_prep_missing_file(tmp_path):
     assert "[0:a:0]asplit=2[disc_wh_in][yt_in]" in fc_single
     assert "[disc_wh]" in fc_single
     assert "[aout]" in fc_single
+
+
+def _catalog_isolado(tmp_path, monkeypatch):
+    import app.model_catalog as mc
+    monkeypatch.setattr(mc, "CACHE_FILE", tmp_path / "models_cache.json")
+    mc.clear_cache()
+    return mc
+
+
+def test_model_catalog_default_without_key(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    res = mc.list_models("gemini", "")
+    assert res["source"] == "default"
+    assert res["models"][0]["value"] == mc.DEFAULT_GOOGLE_MODEL
+    assert mc.normalize_provider("xyz") is None
+
+
+def test_model_catalog_uses_api_and_filters_fallback(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    chamadas = []
+
+    def fake_get(url, headers):
+        chamadas.append(url)
+        return {"models": [
+            {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/gemini-9-novo", "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
+            {"name": "models/gemini-embedding-001", "supportedGenerationMethods": ["generateContent"]},
+        ]}
+
+    monkeypatch.setattr(mc, "_http_get_json", fake_get)
+    res = mc.list_models("gemini", "chave-x")
+    valores = [m["value"] for m in res["models"]]
+    assert res["source"] == "api"
+    assert valores == ["gemini-2.5-flash", "gemini-9-novo"]  # padrão conhecido primeiro, novos depois
+    # segunda chamada vem do cache (24 h)
+    mc.list_models("gemini", "chave-x")
+    assert len(chamadas) == 1
+    # fallback só usa o que a API confirmou
+    assert mc.get_fallback_models("gemini") == ["gemini-2.5-flash"]
+
+
+def test_model_catalog_api_failure_falls_back_to_default(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+
+    def boom(url, headers):
+        raise OSError("sem internet")
+
+    monkeypatch.setattr(mc, "_http_get_json", boom)
+    res = mc.list_models("nvidia", "chave-x")
+    assert res["source"] == "default"
+    assert len(mc.get_fallback_models("nvidia")) >= 3
+
+
+def test_nvidia_models_filter_non_chat(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    monkeypatch.setattr(mc, "_http_get_json", lambda u, h: {"data": [
+        {"id": "z-ai/glm-5.3-flash"}, {"id": "nvidia/nv-embed-v1"}, {"id": "nvidia/rerank-x"},
+    ]})
+    ids = [m["value"] for m in mc.list_models("nvidia", "k")["models"]]
+    assert ids == ["z-ai/glm-5.3-flash"]
+
+
+def test_api_models_endpoint_requires_token(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.database as db
+    import app.main as m
+    _catalog_isolado(tmp_path, monkeypatch)
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr(db, "SETTINGS_JSON_PATH", tmp_path / "s.json")
+    db.init_db()
+    client = TestClient(m.app)
+    token = re.search(r'<meta name="banido-token" content="([^"]+)">', client.get("/").text).group(1)
+    assert client.get("/api/models/gemini").status_code == 403
+    r = client.get("/api/models/gemini", headers={"X-Banido-Token": token})
+    assert r.status_code == 200 and r.json()["source"] == "default"
+    assert client.get("/api/models/outro", headers={"X-Banido-Token": token}).status_code == 404
