@@ -1,20 +1,22 @@
 <#
   Banido Studio AI - instalador para Windows.
 
-  O que faz (tudo dentro de uma unica pasta, sem mexer no resto do computador):
+  O que faz (o programa fica em uma unica pasta, sem mexer no resto do computador):
     1. copia o programa para <InstallDir>\codigo
     2. baixa um Python portatil (runtime\) e instala as dependencias (PyTorch com CUDA, se houver placa NVIDIA)
     3. baixa FFmpeg e MKVToolNix portateis (tools\)
-    4. cria o .env, o arquivo Banido_Studio.bat e um atalho na Area de Trabalho
+    4. pergunta onde guardar os DADOS (gravacoes, cortes, modelos) e escolhe por padrao o disco com mais espaco
+    5. cria o .env, o arquivo Banido_Studio.bat e um atalho na Area de Trabalho
 
   Pode ser executado de novo a qualquer momento: ele atualiza o codigo e completa o que faltar,
-  sem apagar a pasta data (gravacoes, banco de dados, cortes, vozes).
+  sem apagar a pasta de dados (gravacoes, banco de dados, cortes, vozes).
 
   Obs.: este arquivo usa apenas caracteres ASCII de proposito (o PowerShell 5.1 le arquivos sem BOM como ANSI).
 #>
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'BanidoStudio'),
     [string]$FonteDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$DadosDir = '',
     [switch]$SemAtalho,
     [switch]$ForcarCpu
 )
@@ -31,6 +33,10 @@ $FfmpegUrl     = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
 $SevenZipUrl   = 'https://www.7-zip.org/a/7zr.exe'
 $MkvListUrl    = 'https://mkvtoolnix.download/windows/releases/'
 $MkvFallback   = '86.0'
+
+# Espacos minimos recomendados (em GB)
+$GbPrograma = 10   # Python + PyTorch/CUDA + FFmpeg + MKVToolNix + downloads temporarios
+$GbDados    = 15   # modelos (Whisper ~3 GB, SpeechBrain etc.) + folga para gravacoes e cortes
 
 $CodigoDir  = Join-Path $InstallDir 'codigo'
 $RuntimeDir = Join-Path $InstallDir 'runtime'
@@ -81,8 +87,67 @@ function ExecutarQuieto([string]$exe, [string[]]$argumentos) {
     return $saida.Trim()
 }
 
+# Pergunta ao usuario; sem console interativo devolve o padrao.
+function Perguntar([string]$texto, [string]$padrao) {
+    try {
+        $r = Read-Host $texto
+        if ([string]::IsNullOrWhiteSpace($r)) { return $padrao }
+        return $r.Trim().Trim('"')
+    } catch { return $padrao }
+}
+
+function DiscosFixos {
+    @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue | Where-Object { $_.FreeSpace -ne $null })
+}
+
+function GbLivresDe([string]$caminho) {
+    try {
+        $letra = ([IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $caminho -ErrorAction Stop).Path)).TrimEnd('\')
+    } catch {
+        $letra = ([IO.Path]::GetPathRoot($caminho)).TrimEnd('\')
+    }
+    $d = DiscosFixos | Where-Object { $_.DeviceID -ieq $letra } | Select-Object -First 1
+    if ($d) { return [math]::Round($d.FreeSpace / 1GB, 1) }
+    return $null
+}
+
+function LerEnv([string]$arq, [string]$chave) {
+    if (-not (Test-Path $arq)) { return $null }
+    foreach ($l in (Get-Content $arq)) {
+        if ($l -match "^\s*$chave\s*=\s*(.*)$") { return $Matches[1].Trim().Trim('"').Trim("'") }
+    }
+    return $null
+}
+
+# valor $null = comenta a linha (a pasta passa a ser derivada de BANIDO_BASE_DIR).
+function GravarEnv([string]$arq, [string]$chave, [string]$valor) {
+    $linhas = @()
+    if (Test-Path $arq) { $linhas = @(Get-Content $arq) }
+    $achou = $false
+    $novas = New-Object System.Collections.Generic.List[string]
+    foreach ($l in $linhas) {
+        if ($l -match "^\s*$chave\s*=") {
+            $achou = $true
+            if ($null -ne $valor) { $novas.Add("$chave=`"$valor`"") } else { $novas.Add("# $l") }
+        } else { $novas.Add($l) }
+    }
+    if (-not $achou -and $null -ne $valor) { $novas.Add("$chave=`"$valor`"") }
+    Set-Content -Path $arq -Value $novas -Encoding UTF8
+}
+
 try {
     if (-not [Environment]::Is64BitOperatingSystem) { throw 'E necessario Windows de 64 bits.' }
+
+    # ------------------------------------------------------------------ 0. espaco em disco do programa
+    $livreProg = GbLivresDe $InstallDir
+    if ($null -ne $livreProg -and $livreProg -lt $GbPrograma) {
+        Write-Host ""
+        Write-Host "ATENCAO: o disco da instalacao tem so $livreProg GB livres e o programa precisa de cerca de $GbPrograma GB." -ForegroundColor Yellow
+        Write-Host "Sugestao: libere espaco ou rode de novo com outro disco, por exemplo:" -ForegroundColor Yellow
+        Write-Host "  powershell -ExecutionPolicy Bypass -File installer\Instalar.ps1 -InstallDir E:\BanidoStudio" -ForegroundColor Yellow
+        $r = Perguntar 'Continuar mesmo assim? (S/N) [N]' 'N'
+        if ($r -notmatch '^[sSyY]') { throw 'Instalacao cancelada por falta de espaco em disco.' }
+    }
 
     # ------------------------------------------------------------------ 1. codigo
     Etapa '1/6' 'Copiando o programa...'
@@ -93,6 +158,79 @@ try {
         & robocopy $FonteDir $CodigoDir /E /NFL /NDL /NJH /NJS /NP /XD .git .venv venv data __pycache__ .pytest_cache installer\build /XF .env | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "robocopy falhou (codigo $LASTEXITCODE)" }
         $global:LASTEXITCODE = 0
+    }
+
+    # ------------------------------------------------------------------ 1b. pasta de dados (antes dos downloads grandes)
+    $envFile = Join-Path $CodigoDir '.env'
+    if (-not (Test-Path $envFile) -and (Test-Path (Join-Path $CodigoDir '.env.example'))) {
+        Copy-Item (Join-Path $CodigoDir '.env.example') $envFile
+    }
+    $baseAtual = LerEnv $envFile 'BANIDO_BASE_DIR'
+    $modelosAtual = LerEnv $envFile 'BANIDO_MODELS_DIR'
+    $jaEscolhida = ($baseAtual -and [IO.Path]::IsPathRooted($baseAtual))
+
+    if ($jaEscolhida) {
+        Write-Host ""
+        Write-Host "Pasta de dados ja configurada: $baseAtual"
+    } else {
+        Write-Host ""
+        Write-Host 'Onde guardar os DADOS (gravacoes, cortes, modelos de IA, banco de dados)?' -ForegroundColor Cyan
+        Write-Host "Recomendado: um disco com pelo menos $GbDados GB livres (de preferencia SSD)."
+        $discos = @(DiscosFixos | Sort-Object FreeSpace -Descending)
+        foreach ($d in $discos) { Write-Host ("    {0}  {1,7:N1} GB livres de {2:N0} GB" -f $d.DeviceID, ($d.FreeSpace / 1GB), ($d.Size / 1GB)) }
+
+        if ($DadosDir) {
+            $sugestao = $DadosDir
+        } elseif ($discos.Count -gt 0) {
+            $sugestao = Join-Path ($discos[0].DeviceID + '\') 'BanidoStudio\data'
+        } else {
+            $sugestao = Join-Path $CodigoDir 'data'
+        }
+        $escolha = if ($DadosDir) { $DadosDir } else { Perguntar "Pasta de dados [Enter = $sugestao]" $sugestao }
+
+        if (-not [IO.Path]::IsPathRooted($escolha)) { throw "Informe um caminho completo (ex.: E:\BanidoStudio\data). Recebi: $escolha" }
+        New-Item -ItemType Directory -Force -Path $escolha | Out-Null
+        $teste = Join-Path $escolha '.teste_escrita'
+        try { Set-Content -Path $teste -Value 'ok'; Remove-Item $teste -Force } catch { throw "Nao consigo gravar em $escolha" }
+
+        $livreDados = GbLivresDe $escolha
+        if ($null -ne $livreDados -and $livreDados -lt $GbDados) {
+            Write-Host "ATENCAO: $escolha tem so $livreDados GB livres (recomendado: $GbDados GB). O modelo Whisper sozinho usa ~3,1 GB." -ForegroundColor Yellow
+            $r = Perguntar 'Usar mesmo assim? (S/N) [N]' 'N'
+            if ($r -notmatch '^[sSyY]') { throw 'Escolha outra pasta de dados com mais espaco e rode o instalador de novo.' }
+        }
+
+        GravarEnv $envFile 'BANIDO_BASE_DIR' ($escolha.Replace('\', '/'))
+        # As demais pastas passam a ser derivadas de BANIDO_BASE_DIR (a menos que o usuario as defina depois).
+        foreach ($k in 'BANIDO_OBS_DIR', 'BANIDO_CLIPS_DIR', 'BANIDO_VOICE_BANK_DIR', 'BANIDO_MODELS_DIR') {
+            $v = LerEnv $envFile $k
+            if ($v -and -not [IO.Path]::IsPathRooted($v)) { GravarEnv $envFile $k $null }
+        }
+        Write-Host "    dados em: $escolha" -ForegroundColor Green
+        $baseAtual = $escolha
+        $modelosAtual = LerEnv $envFile 'BANIDO_MODELS_DIR'
+    }
+
+    # Reaproveitar modelos ja baixados por uma instalacao antiga (evita baixar ~3 GB de novo).
+    if (-not ($modelosAtual -and [IO.Path]::IsPathRooted($modelosAtual))) {
+        $candidatos = @()
+        foreach ($d in (DiscosFixos)) {
+            foreach ($sub in 'Videos\BanidoStudio\models', 'BanidoStudio\models', 'BanidoStudio\data\models', 'data\models') {
+                $p = Join-Path ($d.DeviceID + '\') $sub
+                if ((Test-Path (Join-Path $p 'whisper')) -and ($candidatos -notcontains $p)) { $candidatos += $p }
+            }
+        }
+        $destinoModelos = Join-Path $baseAtual 'models'
+        $candidatos = @($candidatos | Where-Object { $_ -ne $destinoModelos })
+        if ($candidatos.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Encontrei modelos de IA ja baixados em: $($candidatos[0])" -ForegroundColor Cyan
+            $r = Perguntar 'Reaproveitar esses modelos (evita baixar de novo)? (S/N) [S]' 'S'
+            if ($r -match '^[sSyY]') {
+                GravarEnv $envFile 'BANIDO_MODELS_DIR' ($candidatos[0].Replace('\', '/'))
+                Write-Host "    modelos em: $($candidatos[0])" -ForegroundColor Green
+            }
+        }
     }
 
     # ------------------------------------------------------------------ 2. python
@@ -196,12 +334,8 @@ try {
         Remove-Item $tmp -Recurse -Force
     } else { Write-Host '    ja instalado.' }
 
-    # ------------------------------------------------------------------ 6. configuracao e atalhos
-    Etapa '6/6' 'Finalizando (configuracao e atalhos)...'
-    $envFile = Join-Path $CodigoDir '.env'
-    if (-not (Test-Path $envFile) -and (Test-Path (Join-Path $CodigoDir '.env.example'))) {
-        Copy-Item (Join-Path $CodigoDir '.env.example') $envFile
-    }
+    # ------------------------------------------------------------------ 6. atalhos
+    Etapa '6/6' 'Finalizando (atalhos e verificacao)...'
 
     $launcher = Join-Path $InstallDir 'Banido_Studio.bat'
     $bat = @(
@@ -231,10 +365,14 @@ try {
     Write-Host "PyTorch / CUDA disponivel: $info"
     if ($temNvidia -and $info -notmatch 'sim$') { Write-Host 'Aviso: placa NVIDIA encontrada, mas o PyTorch nao a enxerga. Atualize o driver da NVIDIA.' -ForegroundColor Yellow }
 
+    # Libera o espaco dos downloads temporarios (zips). Uma nova execucao baixa de novo o que precisar.
+    try { Get-ChildItem -Path $CacheDir -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+
     Write-Host ""
     Write-Host 'INSTALACAO CONCLUIDA!' -ForegroundColor Green
+    Write-Host "Dados (gravacoes, cortes, modelos): $baseAtual"
     Write-Host "Abra o atalho 'Banido Studio AI' na Area de Trabalho (ou $launcher)."
-    Write-Host 'Na primeira transcricao o modelo Whisper (cerca de 3 GB) sera baixado automaticamente.'
+    Write-Host 'Na primeira transcricao o modelo Whisper (cerca de 3 GB) sera baixado automaticamente, se ainda nao existir.'
     try { Stop-Transcript | Out-Null } catch {}
     exit 0
 }
