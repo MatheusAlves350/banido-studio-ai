@@ -100,6 +100,22 @@ def test_zip_install_without_git(tmp_path, monkeypatch):
     assert info["local"]["mode"] == "zip"
     assert info["can_apply"] is False
     assert info["remote"]["sha"] == "abc1234"
+    assert info["releases_url"].endswith("/releases/latest")
+
+
+def test_build_torch_constraints_pins_torch_and_torchaudio(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app import updater
+
+    fake_out = "fastapi==0.115.0\ntorch==2.5.1+cu121\ntorchaudio==2.5.1+cu121\nnumpy==1.26.4\n"
+    monkeypatch.setattr(
+        updater.subprocess, "run",
+        lambda *a, **kw: SimpleNamespace(returncode=0, stdout=fake_out, stderr="")
+    )
+    c_path = updater._build_torch_constraints("python", tmp_path)
+    assert c_path is not None and c_path.exists()
+    lines = c_path.read_text(encoding="ascii").splitlines()
+    assert lines == ["torch==2.5.1+cu121", "torchaudio==2.5.1+cu121"]
 
 
 def test_update_endpoints_require_token_and_idle(monkeypatch):

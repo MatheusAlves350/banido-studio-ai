@@ -159,11 +159,11 @@
         const modal = document.getElementById("upd-modal");
         if (!modal || modal.hidden) return;
         document.getElementById("upd-local").textContent = local.mode === "zip"
-            ? "Cópia baixada como ZIP (sem Git)"
+            ? "Instalador Windows / ZIP (sem Git)"
             : `${local.sha || "?"} — ${local.subject || ""} (${fmtDate(local.date)})`;
         const link = document.getElementById("upd-repo-link");
-        link.href = info.repo_url || "#";
-        link.textContent = info.repo || "";
+        link.href = (local.mode === "zip" && info.releases_url) ? info.releases_url : (info.repo_url || "#");
+        link.textContent = (local.mode === "zip" && info.releases_url) ? `${info.repo || ""} (Releases)` : (info.repo || "");
         document.getElementById("upd-checked").textContent = info.checked_at || "";
 
         const summary = document.getElementById("upd-summary");

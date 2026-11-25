@@ -462,3 +462,45 @@ def test_prune_directory_removes_oldest(tmp_path):
     removed = prune_directory(tmp_path, max_bytes=3000, keep_newest=2)
     left = sorted(p.name for p in tmp_path.iterdir())
     assert removed == 3 and left == ["p3.wav", "p4.wav", "p5.wav"]
+
+
+def test_model_catalog_disk_cache_preserves_other_provider(tmp_path, monkeypatch):
+    mc = _catalog_isolado(tmp_path, monkeypatch)
+    monkeypatch.setattr(mc, "_http_get_json", lambda u, h: (
+        {"models": [{"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]}]}
+        if "googleapis" in u
+        else {"data": [{"id": "z-ai/glm-5.3-flash"}]}
+    ))
+    mc.list_models("gemini", "k-google")
+    # Simula reinício do processo (memória limpa, mas disco ainda tem google)
+    mc._CACHE.clear()
+    mc.list_models("nvidia", "k-nvidia")
+    disk = mc._read_disk_cache()
+    assert "google" in disk and "nvidia" in disk
+
+
+def test_network_mode_logout_clears_session(tmp_path, monkeypatch):
+    c = _client_rede(tmp_path, monkeypatch)
+    ok = c.post("/login", content="password=segredo-forte",
+                headers={"content-type": "application/x-www-form-urlencoded"})
+    assert ok.status_code == 303
+    assert c.get("/").status_code == 200
+    out = c.post("/logout")
+    assert out.status_code == 303 and out.headers["location"] == "/login"
+    assert c.get("/").status_code == 303
+
+
+def test_separate_tracks_preserve_short_simultaneous_reactions():
+    from app.transcriber_v3 import merge_track_segments
+    host = [{"start": 10.0, "end": 11.2, "text": "Boa!", "speaker": "Host"}]
+    disc = [{"start": 10.1, "end": 11.3, "text": "Boa!", "speaker": "Discord"}]
+    merged = merge_track_segments(host, disc)
+    assert len(merged) == 2
+    assert {s["speaker"] for s in merged} == {"Host", "Discord"}
+
+
+def test_whisper_hallucination_preserves_high_confidence_laughter():
+    from app.transcriber_v3 import _is_whisper_hallucination as h
+    assert not h("kkkkk corre corre", 1.8, no_speech_prob=0.05, avg_logprob=-0.2, compression_ratio=2.6)
+    assert h("kkkkk corre corre", 1.8, no_speech_prob=0.5, avg_logprob=-0.8, compression_ratio=2.6)
+
