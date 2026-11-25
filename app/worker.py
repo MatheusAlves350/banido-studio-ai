@@ -123,7 +123,8 @@ def run_worker(
     engine: str,
     custom_model: str,
     extra_context: str = "",
-    normalize_audio: bool = False
+    normalize_audio: bool = False,
+    separate_tracks: Optional[bool] = None,
 ):
     job = get_job_by_id(job_id)
     log_path = Path(job["log_file"]) if job and job.get("log_file") else (DATABASE_DIR / "logs" / f"job_{job_id}.log")
@@ -341,7 +342,8 @@ def run_worker(
                 progress_callback=report,
                 manual_game=effective_game,
                 extra_context=effective_context,
-                norm_output_mkv=norm_output_target
+                norm_output_mkv=norm_output_target,
+                separate_tracks=separate_tracks,
             )
             segments = trans_res["segments"]
             hype_scores = trans_res["hype_scores"]
@@ -584,6 +586,7 @@ if __name__ == "__main__":
     parser.add_argument("--engine", type=str, default="gemini")
     parser.add_argument("--model", type=str, default="")
     parser.add_argument("--normalize-audio", action="store_true", default=False)
+    parser.add_argument("--separate-tracks", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
 
     run_worker(
@@ -594,5 +597,6 @@ if __name__ == "__main__":
         engine=args.engine,
         custom_model=args.model,
         extra_context=args.context,
-        normalize_audio=args.normalize_audio
+        normalize_audio=args.normalize_audio,
+        separate_tracks=args.separate_tracks,
     )

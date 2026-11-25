@@ -578,6 +578,7 @@ class ProcessRequest(BaseModel):
     engine: Optional[str] = "gemini"
     custom_model: Optional[str] = ""
     normalize_audio: bool = False
+    separate_tracks: Optional[bool] = None
 
 
 def launch_worker_subprocess(
@@ -587,7 +588,8 @@ def launch_worker_subprocess(
     engine: str,
     custom_model: str,
     extra_context: str = "",
-    normalize_audio: bool = False
+    normalize_audio: bool = False,
+    separate_tracks: Optional[bool] = None,
 ) -> Dict[str, Any]:
     reconcile_worker_processes()
     if 0 in ACTIVE_PROCESSES:
@@ -659,6 +661,8 @@ def launch_worker_subprocess(
     ]
     if mode == "full" and normalize_audio:
         cmd.append("--normalize-audio")
+    if mode == "full" and separate_tracks is not None:
+        cmd.append("--separate-tracks" if separate_tracks else "--no-separate-tracks")
 
     # Capturar stderr de inicialização (ex: ImportError / DLL CUDA) para nunca falhar silenciosamente
     boot_log = LOGS_DIR / f"job_{job_id}_boot.log"
@@ -690,7 +694,8 @@ def process_video(video_id: int, req: ProcessRequest):
         engine=req.engine or "gemini",
         custom_model=req.custom_model or "",
         extra_context=req.extra_context or "",
-        normalize_audio=bool(req.normalize_audio)
+        normalize_audio=bool(req.normalize_audio),
+        separate_tracks=req.separate_tracks,
     )
 
 
@@ -957,6 +962,7 @@ class CutRequest(BaseModel):
     title: str
     boost_discord: bool = True
     keep_all_tracks: bool = False
+    exact_cut: bool = False
 
 
 @app.post("/api/cut")
@@ -970,7 +976,8 @@ def cut_highlight(req: CutRequest):
     res = export_lossless_highlight(
         mkv_path, req.start_sec, req.end_sec, req.title,
         boost_discord=req.boost_discord,
-        keep_all_tracks=req.keep_all_tracks
+        keep_all_tracks=req.keep_all_tracks,
+        exact_cut=req.exact_cut,
     )
     if not res["success"]:
         raise HTTPException(status_code=500, detail=res.get("error", "Erro ao exportar corte"))

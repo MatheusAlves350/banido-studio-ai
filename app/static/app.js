@@ -232,12 +232,31 @@ function setupEventListeners() {
             });
         } catch (_) {}
     }
+    const chkSeparateTracks = document.getElementById("chk-separate-tracks");
+    if (chkSeparateTracks) {
+        try {
+            const savedSep = localStorage.getItem("banido_separate_tracks");
+            if (savedSep !== null) chkSeparateTracks.checked = savedSep === "1";
+            chkSeparateTracks.addEventListener("change", () => {
+                localStorage.setItem("banido_separate_tracks", chkSeparateTracks.checked ? "1" : "0");
+            });
+        } catch (_) {}
+    }
     const chkKeepTracks = document.getElementById("chk-keep-all-tracks");
     if (chkKeepTracks) {
         try {
             chkKeepTracks.checked = localStorage.getItem("banido_keep_all_tracks") === "1";
             chkKeepTracks.addEventListener("change", () => {
                 localStorage.setItem("banido_keep_all_tracks", chkKeepTracks.checked ? "1" : "0");
+            });
+        } catch (_) {}
+    }
+    const chkExactCut = document.getElementById("chk-exact-cut");
+    if (chkExactCut) {
+        try {
+            chkExactCut.checked = localStorage.getItem("banido_exact_cut") === "1";
+            chkExactCut.addEventListener("change", () => {
+                localStorage.setItem("banido_exact_cut", chkExactCut.checked ? "1" : "0");
             });
         } catch (_) {}
     }
@@ -1567,6 +1586,7 @@ async function exportManualCut() {
             btn.textContent = "⏳ Cortando 4K...";
         }
         const keepAllTracks = Boolean(document.getElementById("chk-keep-all-tracks")?.checked);
+        const exactCut = Boolean(document.getElementById("chk-exact-cut")?.checked);
         const res = await fetch("/api/cut", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1576,14 +1596,15 @@ async function exportManualCut() {
                 end_sec: endSec,
                 title: title,
                 boost_discord: true,
-                keep_all_tracks: keepAllTracks
+                keep_all_tracks: keepAllTracks,
+                exact_cut: exactCut
             })
         });
         const data = await res.json();
         if (data.success) {
             const clipsDir = studioConfig.clips_dir || "Cortes";
             const savedTarget = data.clip_path || `${clipsDir}/${data.filename}`;
-            alert(`Corte Manual 4K Lossless gerado com sucesso!\nSalvo em: ${savedTarget}`);
+            alert(`Corte Manual 4K gerado com sucesso!\nSalvo em: ${savedTarget}`);
         } else {
             alert("Erro ao gerar corte manual: " + (data.detail || data.error || "Desconhecido"));
         }
@@ -1603,6 +1624,7 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
         btn.disabled = true;
 
         const keepAllTracks = Boolean(document.getElementById("chk-keep-all-tracks")?.checked);
+        const exactCut = Boolean(document.getElementById("chk-exact-cut")?.checked);
         const res = await fetch("/api/cut", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1612,14 +1634,15 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
                 end_sec: endSec,
                 title: title,
                 boost_discord: true,
-                keep_all_tracks: keepAllTracks
+                keep_all_tracks: keepAllTracks,
+                exact_cut: exactCut
             })
         });
         const data = await res.json();
         if (data.success) {
             const clipsDir = studioConfig.clips_dir || "Cortes";
             const savedTarget = data.clip_path || `${clipsDir}/${data.filename}`;
-            alert(`Corte 4K Lossless gerado com sucesso!\nSalvo em: ${savedTarget}`);
+            alert(`Corte 4K gerado com sucesso!\nSalvo em: ${savedTarget}`);
         } else {
             alert("Erro ao gerar corte: " + (data.detail || data.error || "Desconhecido"));
         }
@@ -1639,6 +1662,8 @@ async function startProcessing() {
     const engine = document.getElementById("select-engine").value;
     const activeModel = document.getElementById("select-active-model").value;
     const normalizeAudio = Boolean(document.getElementById("chk-normalize-on-process")?.checked);
+    const sepEl = document.getElementById("chk-separate-tracks");
+    const separateTracks = sepEl ? Boolean(sepEl.checked) : true;
 
     try {
         lastRawLogText = "";
@@ -1650,7 +1675,8 @@ async function startProcessing() {
                 extra_context: extraContext,
                 engine: engine,
                 custom_model: activeModel,
-                normalize_audio: normalizeAudio
+                normalize_audio: normalizeAudio,
+                separate_tracks: separateTracks
             })
         });
         const data = await res.json();

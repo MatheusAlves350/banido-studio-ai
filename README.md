@@ -20,7 +20,7 @@ Pipeline automatizado de altíssima fidelidade para processar gravações do **O
   - **Claude Web (1-Clique)**: copia o prompt estruturado para colar no `claude.ai` e importa a resposta JSON de volta no painel.
 - **Operações 100% Lossless (Zero Re-renderização de Vídeo)**:
   - **Normalização YouTube Gold (`-15.5 LUFS`)**: pode ser executada de forma isolada, em lote **ou em Passada Única (`Single-Pass`) em paralelo com o Whisper** ao processar um vídeo (sem precisar reler nem reprocessar o MKV no final!). Reequilibra a Faixa 1 mantendo o vídeo 4K AV1 e todas as faixas auxiliares (2..N) intactas via stream copy (`-c:v copy`), com validação via `ffprobe` antes da substituição atômica.
-  - **Cortes Instantâneos**: exportação de highlights ou trechos manuais em segundos via `ffmpeg -c:v copy`, com opção de manter todas as faixas de áudio para edição posterior e proteção contra sobrescrita (`(2)`, `(3)`).
+  - **Cortes Instantâneos (e Corte Exato Opcional)**: exportação lossless de highlights em segundos via `ffmpeg -c:v copy` (dica: configure **Intervalo de Quadros-Chave = 1s ou 2s** no OBS para cortes lossless ainda mais precisos), opção **Corte exato no frame** (recodifica apenas o trecho curto para início exato), preservação de todas as faixas de áudio e proteção contra sobrescrita (`(2)`, `(3)`).
   - **Capítulos no `.mkv`**: gravação instantânea in-place com `mkvpropedit` (MKVToolNix) ou fallback lossless via FFmpeg.
   - **Renomeação Segura**: renomeia simultaneamente `.mkv` e `.srt` no padrão `DATA - JOGO - TÍTULO`, sem sobrescrever arquivos existentes.
 - **Arquitetura Desacoplada, Segura & Multi-Instância**:

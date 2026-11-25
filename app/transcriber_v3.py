@@ -665,9 +665,11 @@ def _transcribe_block(
     eff_offset_sec: float,
     block_dynamics: Dict[str, Any],
     initial_prompt: str,
+    separate_tracks: Optional[bool] = None,
+    track_status_cb: Optional[Callable[[str], None]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Transcreve um bloco. Com microfone isolado (e SEPARATE_TRACK_TRANSCRIPTION ligado) roda o Whisper
+    Transcreve um bloco. Com microfone isolado (e separate_tracks ativo) roda o Whisper
     uma vez por faixa (Anfitrião e Discord), preservando falas simultâneas; sem mic isolado
     (1 faixa ou 2 faixas duplicadas) mantém o mix único com classificação acústica.
     """
@@ -692,8 +694,9 @@ def _transcribe_block(
             ))
         return out
 
+    use_separate = SEPARATE_TRACK_TRANSCRIPTION if separate_tracks is None else bool(separate_tracks)
     separate = (
-        SEPARATE_TRACK_TRANSCRIPTION
+        use_separate
         and bool(block_dynamics.get("has_isolated_mic"))
         and mic_work is not None
         and len(mic_work) > 0
@@ -708,12 +711,16 @@ def _transcribe_block(
     ts_block = format_hhmmss(eff_offset_sec)
     if _track_has_speech(m_rms):
         print(f"[WHISPER] [{ts_block}] Transcrevendo faixa isolada ({HOST_SPEAKER_NAME})...", flush=True)
+        if track_status_cb:
+            track_status_cb(f"faixa {HOST_SPEAKER_NAME}")
         host_segs = [
             seg for seg in _run(mic_work, HOST_SPEAKER_NAME)
             if _mic_segment_is_real(m_rms, seg["start"] - eff_offset_sec, seg["end"] - eff_offset_sec)
         ]
     if _track_has_speech(d_rms):
         print(f"[WHISPER] [{ts_block}] Transcrevendo faixa Discord...", flush=True)
+        if track_status_cb:
+            track_status_cb("faixa Discord")
         discord_segs = _run(disc_work, "Discord")
     return merge_track_segments(host_segs, discord_segs)
 
@@ -725,7 +732,8 @@ def run_transcription_pipeline(
     progress_callback: Optional[Callable[[str, float], None]] = None,
     manual_game: str = "",
     extra_context: str = "",
-    norm_output_mkv: Optional[Path] = None
+    norm_output_mkv: Optional[Path] = None,
+    separate_tracks: Optional[bool] = None,
 ) -> Dict[str, Any]:
     temp_dir.mkdir(parents=True, exist_ok=True)
     stat = mkv_path.stat()
@@ -783,7 +791,8 @@ def run_transcription_pipeline(
             progress_callback=progress_callback,
             manual_game=manual_game,
             extra_context=extra_context,
-            norm_output_mkv=norm_output_mkv
+            norm_output_mkv=norm_output_mkv,
+            separate_tracks=separate_tracks,
         )
 
     # 1. Caminho legado (apenas para retomar checkpoints antigos já extraídos como WAV único)
@@ -1049,7 +1058,8 @@ def _run_parallel_segmented_pipeline(
     prebuffer_chunks: int = 3,
     manual_game: str = "",
     extra_context: str = "",
-    norm_output_mkv: Optional[Path] = None
+    norm_output_mkv: Optional[Path] = None,
+    separate_tracks: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Pipeline Paralelo em Diretório Temporário (preferencialmente SSD separado do disco de gravações):
@@ -1322,9 +1332,19 @@ def _run_parallel_segmented_pipeline(
                 "discord_rms": d_rms
             }
 
+            def _track_cb(track_label: str):
+                if progress_callback:
+                    base_pct = 0.34 + min(0.44, (eff_offset_sec / total_duration) * 0.44)
+                    progress_callback(
+                        f"Transcrevendo bloco {idx + 1}/{est_num_chunks} ({track_label}) [{format_hhmmss(eff_offset_sec)} / {total_hhmmss}]...",
+                        base_pct,
+                    )
+
             block_segs = _transcribe_block(
                 model, mix_chunk, mic_work, disc_work,
-                eff_offset_sec, block_dynamics, initial_prompt
+                eff_offset_sec, block_dynamics, initial_prompt,
+                separate_tracks=separate_tracks,
+                track_status_cb=_track_cb,
             )
 
             for seg_dict in block_segs:
@@ -1384,7 +1404,8 @@ def _run_parallel_segmented_pipeline(
             mix_tail = build_balanced_mix_array(carryover_mic, carryover_disc, has_isolated_mic=has_isolated_mic)
             tail_segs = _transcribe_block(
                 model, mix_tail, carryover_mic, carryover_disc,
-                eff_offset_sec, block_dynamics, initial_prompt
+                eff_offset_sec, block_dynamics, initial_prompt,
+                separate_tracks=separate_tracks,
             )
             for seg_dict in tail_segs:
                 seg_counter += 1
