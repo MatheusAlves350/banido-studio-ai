@@ -859,7 +859,7 @@ def run_transcription_pipeline(
         )
     else:
         if progress_callback:
-            progress_callback("Carregando Whisper large-v3 Full na RTX 4060 (CUDA)...", 0.34)
+            progress_callback(f"Carregando Whisper {WHISPER_MODEL_SIZE} (GPU/CPU)...", 0.34)
 
         _log_memory_status("[MEMÓRIA PRÉ-WHISPER]")
 
@@ -1144,7 +1144,7 @@ def _run_parallel_segmented_pipeline(
             )
         else:
             if progress_callback:
-                progress_callback("Carregando Whisper large-v3 Full na RTX 4060 (CUDA)...", 0.32)
+                progress_callback(f"Carregando Whisper {WHISPER_MODEL_SIZE} (GPU/CPU)...", 0.32)
             _log_memory_status("[MEMÓRIA PRÉ-WHISPER]")
             model = get_whisper_model()
             print(f"[WHISPER] Prompt de contexto ativo: {initial_prompt}", flush=True)
