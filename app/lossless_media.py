@@ -45,12 +45,21 @@ def inspect_mkv_audio_norm(mkv_path: Path) -> Dict[str, Any]:
         if not norm_tag and "youtube gold" in a0_tags.get("TITLE", "").lower():
             norm_tag = YOUTUBE_AUDIO_NORM_TAG
 
+    original_backup_idx = None
+    for idx_a, a_st in enumerate(audio_streams):
+        a_tags = {str(k).upper(): str(v) for k, v in (a_st.get("tags") or {}).items()}
+        if a_tags.get("BANIDO_ORIGINAL_MIX") or "original mix backup" in a_tags.get("TITLE", "").lower():
+            original_backup_idx = idx_a
+            break
+
     return {
         "audio_streams": len(audio_streams),
         "video_streams": len(video_streams),
         "duration": duration,
         "is_normalized": bool(norm_tag),
-        "norm_tag": norm_tag
+        "norm_tag": norm_tag,
+        "has_original_backup": original_backup_idx is not None,
+        "original_backup_index": original_backup_idx,
     }
 
 
@@ -628,12 +637,13 @@ def finalize_normalized_mkv(
             }
 
         new_info = inspect_mkv_audio_norm(temp_mkv)
-        if new_info["video_streams"] < 1 or new_info["audio_streams"] != orig_audio:
+        expected_audio = orig_audio + (0 if orig_info.get("has_original_backup") else 1)
+        if new_info["video_streams"] < 1 or new_info["audio_streams"] not in (orig_audio, expected_audio):
             return {
                 "success": False,
                 "error": (
                     f"Contagem de streams divergiu após remux (vídeo={new_info['video_streams']}, "
-                    f"áudio={new_info['audio_streams']} vs esperado {orig_audio}). Original preservado!"
+                    f"áudio={new_info['audio_streams']} vs esperado {expected_audio}). Original preservado!"
                 )
             }
 
@@ -659,9 +669,11 @@ def finalize_normalized_mkv(
 
         elapsed = round(time.time() - t0, 1)
         final_size_gb = round(mkv_path.stat().st_size / (1024 ** 3), 2)
+        final_audio = new_info["audio_streams"]
+        backup_note = " | Mix original preservado como faixa extra (backup)" if new_info.get("has_original_backup") else ""
         print(
             f"[AUDIO NORM] ✅ Concluído em {elapsed}s! {mkv_path.name} ({final_size_gb} GB) "
-            f"| Vídeo 4K AV1 100% lossless | Faixa 1 YouTube Gold | Faixas 2-{orig_audio} preservadas.",
+            f"| Vídeo 4K AV1 100% lossless | Faixa 1 YouTube Gold | Faixas 2-{orig_audio} preservadas{backup_note}.",
             flush=True
         )
         return {
@@ -671,7 +683,8 @@ def finalize_normalized_mkv(
             "size_gb": final_size_gb,
             "mtime": orig_mtime,
             "duration": new_info["duration"],
-            "audio_streams": orig_audio,
+            "audio_streams": final_audio,
+            "has_original_backup": bool(new_info.get("has_original_backup")),
             "elapsed_sec": elapsed,
             "norm_tag": YOUTUBE_AUDIO_NORM_TAG
         }
@@ -764,6 +777,10 @@ def normalize_mkv_audio_lossless(
     # Preservar intactas todas as faixas auxiliares (2..N: Mic, Discord cru, Jogo, Desktop, Soundpad)
     for a_idx in range(1, orig_audio):
         cmd.extend(["-map", f"0:a:{a_idx}"])
+    # Preservar o mix original (0:a:0) como faixa extra de backup lossless (sem alterar índices 2..N)
+    append_backup = not bool(info.get("has_original_backup"))
+    if append_backup:
+        cmd.extend(["-map", "0:a:0"])
 
     cmd.extend([
         "-map_metadata", "0",
@@ -773,6 +790,13 @@ def normalize_mkv_audio_lossless(
     ])
     for a_idx in range(1, orig_audio):
         cmd.extend([f"-c:a:{a_idx}", "copy"])
+    if append_backup:
+        cmd.extend([
+            f"-c:a:{orig_audio}", "copy",
+            f"-disposition:a:{orig_audio}", "0",
+            f"-metadata:s:a:{orig_audio}", "title=Track1 (Original Mix Backup)",
+            f"-metadata:s:a:{orig_audio}", "BANIDO_ORIGINAL_MIX=1",
+        ])
 
     cmd.extend([
         "-disposition:a:0", "default",
