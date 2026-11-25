@@ -275,7 +275,7 @@ def extract_embeddings_batch(
 ) -> Dict[int, np.ndarray]:
     """
     Extrai embeddings em mini-lotes na GPU usando wav_lens relativos do SpeechBrain
-    (2x-3x mais rápido na RTX 4060). Em caso de falha num lote, faz fallback seguro 1 a 1.
+    (2x-3x mais rápido em GPU CUDA). Em caso de falha num lote, faz fallback seguro 1 a 1.
     """
     if not items:
         return {}

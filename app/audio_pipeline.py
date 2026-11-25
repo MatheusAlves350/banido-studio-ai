@@ -396,7 +396,7 @@ def build_balanced_mix_array(
 class SegmentedAudioExtractor:
     """
     Extrai faixas de áudio do MKV em blocos sequenciais de 5 minutos (300s) direto no SSD
-    enquanto o Whisper já transcreve os blocos anteriores em paralelo na RTX 4060.
+    enquanto o Whisper já transcreve os blocos anteriores em paralelo na GPU.
     Um bloco k só é considerado 100% pronto quando o bloco k+1 já existe em TODOS os streams
     ativos (garantindo que o FFmpeg já fechou k) ou quando o FFmpeg terminou com sucesso.
     """

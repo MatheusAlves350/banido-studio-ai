@@ -335,8 +335,8 @@ async def csrf_and_token_guard(request: Request, call_next):
         (path.startswith("/api/") and method in ("POST", "PUT", "PATCH", "DELETE"))
         or (path == "/api/settings" and method == "GET")
         or (path.startswith("/api/models/") and method == "GET")
-        # GETs que executam FFmpeg/rede ou gravam arquivos: também exigem o token
-        or (path.startswith(("/api/audio/preview/", "/api/speakers/preview/", "/api/update/")) and method == "GET")
+        # GETs que executam FFmpeg/rede ou gravam/expõem logs locais: também exigem o token
+        or (path.startswith(("/api/audio/preview/", "/api/speakers/preview/", "/api/update/", "/api/diagnostics/")) and method == "GET")
     )
     if needs_token:
         provided = request.headers.get("X-Banido-Token", "")
@@ -1456,6 +1456,37 @@ def update_restart():
         }
     updater.schedule_restart()
     return {"success": True, "restart_supported": True, "message": "Reiniciando o servidor..."}
+
+
+# ==============================================================================
+# DIAGNÓSTICO / RELATÓRIO DE BUGS (LOGS SANITIZADOS)
+# ==============================================================================
+
+@app.get("/api/diagnostics/report")
+def get_diagnostic_report(
+    job_id: Optional[int] = None,
+    video_id: Optional[int] = None,
+    strip_transcripts: bool = True,
+    redact_filenames: bool = False,
+):
+    """Monta um relatório sanitizado de diagnóstico (pronto para revisão, download ou Issue no GitHub)."""
+    from app.diagnostics import build_diagnostic_report
+
+    reconcile_worker_processes()
+    job = None
+    if job_id is not None:
+        job = get_job_by_id(job_id)
+    elif video_id is not None:
+        job = get_latest_job_for_video(video_id)
+    else:
+        recent = get_job_history(limit=1)
+        job = recent[0] if recent else None
+
+    return build_diagnostic_report(
+        job=job,
+        strip_transcript_lines=strip_transcripts,
+        redact_filenames=redact_filenames,
+    )
 
 
 if __name__ == "__main__":
