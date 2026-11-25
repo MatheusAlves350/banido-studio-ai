@@ -40,6 +40,8 @@ Name: "{autodesktop}\Banido Studio AI"; Filename: "{app}\Banido_Studio.bat"; Wor
 ; Uma janela de console mostra o andamento (downloads grandes: 10 a 30 minutos). Nao fechar.
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\fonte\installer\InstalarSemPerguntas.ps1"" -InstallDir ""{app}"" -FonteDir ""{app}\fonte"" -DadosDir ""{code:DadosDir}"" -SemAtalho"; StatusMsg: "Baixando e configurando Python, IA, FFmpeg e MKVToolNix (pode levar varios minutos)..."; Flags: waituntilterminated
 Filename: "{app}\Banido_Studio.bat"; Description: "Abrir o Banido Studio AI agora"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent shellexec
+; Atualizacao silenciosa pelo painel (/ATUALIZACAO=1): reabre o programa sozinho, pois nao ha tela final.
+Filename: "{app}\Banido_Studio.bat"; WorkingDir: "{app}"; Flags: nowait shellexec; Check: IsAtualizacao
 
 [UninstallRun]
 ; Remove programa, bibliotecas e atalhos. Os dados do usuario (gravacoes, cortes, banco, modelos) sao MANTIDOS.
@@ -55,6 +57,12 @@ Type: filesandordirs; Name: "{app}\fonte"
 [Code]
 var
   DadosPage: TInputDirWizardPage;
+
+// Verdadeiro quando o painel do programa chamou este instalador para atualizar (sem telas).
+function IsAtualizacao: Boolean;
+begin
+  Result := ExpandConstant('{param:ATUALIZACAO|0}') = '1';
+end;
 
 // Letra do disco com mais espaco livre (ignora A: e B:).
 function MelhorDisco(): String;
@@ -90,6 +98,7 @@ begin
   DadosPage.Values[0] := MelhorDisco() + ':\BanidoStudio\data';
 end;
 
+// Em atualizacoes a pasta de dados ja esta no .env e o script a respeita.
 function DadosDir(Param: String): String;
 begin
   Result := RemoveBackslash(DadosPage.Values[0]);
