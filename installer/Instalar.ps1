@@ -62,6 +62,25 @@ function ExecutarPython([string[]]$argumentos) {
     if ($LASTEXITCODE -ne 0) { throw "Falha ao executar: python $($argumentos -join ' ')" }
 }
 
+# No PowerShell 5.1, redirecionar o erro de um programa externo (2>$null) com
+# $ErrorActionPreference='Stop' vira uma excecao fatal. Estas funcoes rodam o programa
+# com 'Continue', juntam a saida e devolvem o codigo de saida em $script:CodigoSaida.
+$script:CodigoSaida = 0
+function ExecutarQuieto([string]$exe, [string[]]$argumentos) {
+    $antes = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $saida = & $exe @argumentos 2>&1 | Out-String
+        $script:CodigoSaida = $LASTEXITCODE
+    } catch {
+        $saida = ''
+        $script:CodigoSaida = 1
+    } finally {
+        $ErrorActionPreference = $antes
+    }
+    return $saida.Trim()
+}
+
 try {
     if (-not [Environment]::Is64BitOperatingSystem) { throw 'E necessario Windows de 64 bits.' }
 
@@ -90,19 +109,20 @@ try {
         if ($linhas -notcontains '..\codigo') { $linhas += '..\codigo' }
         Set-Content -Path $pth.FullName -Value $linhas -Encoding ASCII
     }
-    & $PythonExe -m pip --version 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    $null = ExecutarQuieto $PythonExe @('-m', 'pip', '--version')
+    if ($script:CodigoSaida -ne 0) {
+        Write-Host '    instalando o pip...'
         $getpip = Join-Path $CacheDir 'get-pip.py'
         Baixar $GetPipUrl $getpip
         ExecutarPython @($getpip, '--no-warn-script-location')
-    }
+    } else { Write-Host '    pip ja instalado.' }
 
     # ------------------------------------------------------------------ 3. dependencias
     Etapa '3/6' 'Instalando bibliotecas de IA (pode levar 10 a 30 minutos; downloads grandes)...'
     $temNvidia = $false
     if (-not $ForcarCpu) {
         $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
-        if ($smi) { & nvidia-smi -L 2>$null | Out-Null; $temNvidia = ($LASTEXITCODE -eq 0); $global:LASTEXITCODE = 0 }
+        if ($smi) { $null = ExecutarQuieto 'nvidia-smi' @('-L'); $temNvidia = ($script:CodigoSaida -eq 0) }
     }
     if ($temNvidia) {
         Write-Host '    Placa NVIDIA detectada: instalando PyTorch com CUDA.'
@@ -144,8 +164,8 @@ try {
         Baixar "https://mkvtoolnix.download/windows/releases/$versao/mkvtoolnix-64-bit-$versao.7z" $arq
         $tmp = Join-Path $CacheDir 'mkv_tmp'
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
-        & $sevenZip x $arq "-o$tmp" -y | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'Falha ao extrair o MKVToolNix.' }
+        $null = ExecutarQuieto $sevenZip @('x', $arq, "-o$tmp", '-y')
+        if ($script:CodigoSaida -ne 0) { throw 'Falha ao extrair o MKVToolNix.' }
         $exe = Get-ChildItem -Path $tmp -Recurse -Filter 'mkvpropedit.exe' | Select-Object -First 1
         if (-not $exe) { throw 'mkvpropedit.exe nao encontrado no arquivo baixado.' }
         New-Item -ItemType Directory -Force -Path $mkvDir | Out-Null
@@ -182,7 +202,8 @@ try {
     }
 
     # Verificacao rapida
-    $cuda = (& $PythonExe -c "import torch; print('sim' if torch.cuda.is_available() else 'nao')" 2>$null)
+    $cuda = ExecutarQuieto $PythonExe @('-c', "import torch; print('sim' if torch.cuda.is_available() else 'nao')")
+    $cuda = ($cuda -split "`r?`n" | Select-Object -Last 1)
     Write-Host ""
     Write-Host "CUDA disponivel no PyTorch: $cuda"
     if ($temNvidia -and $cuda -ne 'sim') { Write-Host 'Aviso: placa NVIDIA encontrada, mas o PyTorch nao a enxerga. Atualize o driver da NVIDIA.' -ForegroundColor Yellow }
