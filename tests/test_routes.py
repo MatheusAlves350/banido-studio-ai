@@ -63,7 +63,9 @@ def _achatar(rotas):
         if hasattr(r, "path"):
             yield r
         else:
-            yield from _achatar(r.router.routes)
+            # FastAPI mais novo agrupa as rotas incluídas em um objeto próprio
+            sub = getattr(r, "original_router", None) or r.router
+            yield from _achatar(sub.routes)
 
 
 def test_lista_de_rotas_igual_a_antes_da_separacao():
