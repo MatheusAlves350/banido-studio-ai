@@ -38,7 +38,7 @@ Name: "{autodesktop}\Banido Studio AI"; Filename: "{app}\Banido_Studio.bat"; Wor
 
 [Run]
 ; Uma janela de console mostra o andamento (downloads grandes: 10 a 30 minutos). Nao fechar.
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\fonte\installer\Instalar.ps1"" -InstallDir ""{app}"" -FonteDir ""{app}\fonte"" -DadosDir ""{code:DadosDir}"" -SemAtalho -SemPerguntas"; StatusMsg: "Baixando e configurando Python, IA, FFmpeg e MKVToolNix (pode levar varios minutos)..."; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\fonte\installer\InstalarSemPerguntas.ps1"" -InstallDir ""{app}"" -FonteDir ""{app}\fonte"" -DadosDir ""{code:DadosDir}"" -SemAtalho"; StatusMsg: "Baixando e configurando Python, IA, FFmpeg e MKVToolNix (pode levar varios minutos)..."; Flags: waituntilterminated
 Filename: "{app}\Banido_Studio.bat"; Description: "Abrir o Banido Studio AI agora"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent shellexec
 
 [UninstallRun]
