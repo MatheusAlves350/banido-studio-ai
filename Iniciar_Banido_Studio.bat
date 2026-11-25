@@ -35,6 +35,28 @@ if not defined PYTHON_EXE (
     if !errorlevel! equ 0 set "PYTHON_EXE=python"
 )
 
+rem --- Se as dependencias nao estao instaladas, chama o instalador (Windows) e abre o programa instalado ---
+set "NEEDS_INSTALL="
+if not defined PYTHON_EXE set "NEEDS_INSTALL=1"
+if defined PYTHON_EXE (
+    "%PYTHON_EXE%" -c "import uvicorn, fastapi" >nul 2>&1
+    if !errorlevel! neq 0 set "NEEDS_INSTALL=1"
+)
+if defined NEEDS_INSTALL if not defined BANIDO_NO_AUTOINSTALL if exist "%APP_DIR%\Instalar_Banido_Studio.bat" (
+    echo.
+    echo Este programa ainda nao foi instalado neste computador.
+    echo Vou abrir o instalador agora. Ele faz tudo sozinho.
+    echo.
+    set "BANIDO_CHAMADO_PELO_INICIAR=1"
+    call "%APP_DIR%\Instalar_Banido_Studio.bat"
+    if !errorlevel! neq 0 exit /b 1
+    if exist "%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat" (
+        set "BANIDO_NO_AUTOINSTALL=1"
+        call "%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat"
+    )
+    exit /b 0
+)
+
 if not defined PYTHON_EXE (
     echo [ERRO] Python nao encontrado. Crie uma venv e instale as dependencias:
     echo   python -m venv .venv
