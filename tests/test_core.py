@@ -584,4 +584,33 @@ def test_original_mix_backup_detection_and_finalize(tmp_path, monkeypatch):
     assert res["has_original_backup"] is True
 
 
+def test_remove_original_mix_backup_stream_copy(tmp_path, monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    import app.lossless_media as lm
+
+    mkv = tmp_path / "sessao.mkv"
+    mkv.write_bytes(b"a" * 2_000_000)
+
+    calls = []
+    inspect_seq = iter([
+        {"audio_streams": 4, "video_streams": 1, "duration": 120.0, "is_normalized": True, "has_original_backup": True, "original_backup_index": 3},
+        {"audio_streams": 3, "video_streams": 1, "duration": 120.0, "is_normalized": True, "has_original_backup": False, "original_backup_index": None},
+    ])
+    monkeypatch.setattr(lm, "inspect_mkv_audio_norm", lambda p: next(inspect_seq))
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        Path(cmd[-1]).write_bytes(b"b" * 1_500_000)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(lm.subprocess, "run", fake_run)
+    res = lm.remove_original_mix_backup(mkv)
+    assert res["success"] is True and res["skipped"] is False
+    assert res["audio_streams"] == 3
+    assert res["freed_mb"] > 0.4
+    assert "-0:a:3" in calls[0] and "-c" in calls[0] and "copy" in calls[0]
+
+
+
 

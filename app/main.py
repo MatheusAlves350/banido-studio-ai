@@ -728,6 +728,24 @@ def normalize_video_audio(video_id: int):
     )
 
 
+@app.post("/api/audio/remove-backup/{video_id}")
+def remove_video_audio_backup(video_id: int):
+    """Remove a faixa extra de backup do mix original (BANIDO_ORIGINAL_MIX=1) via stream copy lossless."""
+    from app.lossless_media import remove_original_mix_backup
+
+    _ensure_not_busy(video_id, "remover o backup de áudio deste vídeo")
+    video = get_video_by_id(video_id, include_data=False)
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+
+    mkv_path = Path(video["file_path"])
+    res = remove_original_mix_backup(mkv_path)
+    if not res.get("success"):
+        raise HTTPException(status_code=500, detail=res.get("error", "Erro ao remover faixa de backup"))
+    AUDIO_NORM_CHECK_CACHE.pop(video_id, None)
+    return res
+
+
 @app.post("/api/normalize-audio-batch")
 def normalize_all_videos_audio():
     reconcile_worker_processes()

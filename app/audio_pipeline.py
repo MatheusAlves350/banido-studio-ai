@@ -518,14 +518,16 @@ class SegmentedAudioExtractor:
                     *seg_opts, str(self.seg_dir / "sp_%04d.wav"),
                 ])
 
-            # Saída MKV normalizada (vídeo 100% lossless -c:v copy + Faixa 1 YouTube Gold + Faixas 2..N copy + backup do mix original)
+            # Saída MKV normalizada (vídeo 100% lossless -c:v copy + Faixa 1 YouTube Gold + Faixas 2..N copy + backup opcional)
+            from app.config import KEEP_ORIG_AUDIO_BACKUP
             cmd.extend([
                 "-map", "0:v:0",
                 "-map", "[aout]",
             ])
             for a_idx in range(1, self.stream_count):
                 cmd.extend(["-map", f"0:a:{a_idx}"])
-            cmd.extend(["-map", "0:a:0"])
+            if KEEP_ORIG_AUDIO_BACKUP:
+                cmd.extend(["-map", "0:a:0"])
             cmd.extend([
                 "-map_metadata", "0",
                 "-map_chapters", "0",
@@ -534,11 +536,14 @@ class SegmentedAudioExtractor:
             ])
             for a_idx in range(1, self.stream_count):
                 cmd.extend([f"-c:a:{a_idx}", "copy"])
+            if KEEP_ORIG_AUDIO_BACKUP:
+                cmd.extend([
+                    f"-c:a:{self.stream_count}", "copy",
+                    f"-disposition:a:{self.stream_count}", "0",
+                    f"-metadata:s:a:{self.stream_count}", "title=Track1 (Original Mix Backup)",
+                    f"-metadata:s:a:{self.stream_count}", "BANIDO_ORIGINAL_MIX=1",
+                ])
             cmd.extend([
-                f"-c:a:{self.stream_count}", "copy",
-                f"-disposition:a:{self.stream_count}", "0",
-                f"-metadata:s:a:{self.stream_count}", "title=Track1 (Original Mix Backup)",
-                f"-metadata:s:a:{self.stream_count}", "BANIDO_ORIGINAL_MIX=1",
                 "-disposition:a:0", "default",
                 "-metadata", f"BANIDO_AUDIO_NORM={YOUTUBE_AUDIO_NORM_TAG}",
                 "-metadata:s:a:0", "title=Track1 (YouTube Gold)",
