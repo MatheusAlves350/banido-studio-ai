@@ -35,6 +35,14 @@ def test_detect_watched_process(monkeypatch):
     assert gg.detect_watched_process(["valorant.exe", "CS2.exe"]) == "CS2.exe"
 
 
+def test_detect_pause_reason_windows_fullscreen_game(tmp_path, monkeypatch):
+    from app import game_guard as gg
+
+    monkeypatch.setattr(gg, "detect_windows_fullscreen_game", lambda: True)
+    reason = gg.detect_pause_reason(tmp_path)
+    assert reason and "Windows" in reason
+
+
 def test_wait_while_paused_resumes_on_flag_and_when_recording_stops(tmp_path, monkeypatch):
     from app import game_guard as gg
 

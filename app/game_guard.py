@@ -118,16 +118,38 @@ def detect_watched_process(process_names: Iterable[str]) -> Optional[str]:
     return None
 
 
+QUNS_RUNNING_D3D_FULL_SCREEN = 3
+
+
+def detect_windows_fullscreen_game() -> bool:
+    """
+    Usa a API nativa do Windows (shell32.SHQueryUserNotificationState) para detectar
+    jogos Direct3D em tela cheia (estado QUNS_RUNNING_D3D_FULL_SCREEN = 3), sem
+    disparar falso positivo com navegador/YouTube em tela cheia.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        state = ctypes.c_int(0)
+        hr = ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state))
+        return hr == 0 and state.value == QUNS_RUNNING_D3D_FULL_SCREEN
+    except Exception:
+        return False
+
+
 def detect_pause_reason(
     obs_dir: Path,
     exclude_path: Optional[Path] = None,
     watched_processes: Optional[Iterable[str]] = None,
     recent_sec: float = 15.0,
 ) -> Optional[str]:
-    """Retorna motivo legível para pausar (gravação ativa do OBS ou processo de jogo), ou None."""
+    """Retorna motivo legível para pausar (OBS gravando, jogo D3D tela cheia ou processo vigiado), ou None."""
     rec_name = detect_active_obs_recording(obs_dir, exclude_path=exclude_path, recent_sec=recent_sec)
     if rec_name:
         return f"gravação ativa do OBS ({rec_name})"
+    if detect_windows_fullscreen_game():
+        return "jogo em tela cheia detectado pelo Windows (Modo Jogo/D3D)"
     if watched_processes:
         proc = detect_watched_process(watched_processes)
         if proc:
