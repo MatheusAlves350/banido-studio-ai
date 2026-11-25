@@ -325,6 +325,7 @@ async def csrf_and_token_guard(request: Request, call_next):
     needs_token = (
         (path.startswith("/api/") and method in ("POST", "PUT", "PATCH", "DELETE"))
         or (path == "/api/settings" and method == "GET")
+        or (path.startswith("/api/models/") and method == "GET")
     )
     if needs_token:
         provided = request.headers.get("X-Banido-Token", "")
@@ -1193,6 +1194,17 @@ def update_settings(req: SettingsModel):
     res = _build_safe_settings_response()
     res["success"] = True
     return res
+
+
+@app.get("/api/models/{provider}")
+def get_models(provider: str, refresh: bool = False):
+    """Lista de modelos do provedor (Gemini ou NVIDIA), com cache de 24 h e lista padrão como reserva."""
+    from app.model_catalog import list_models, normalize_provider
+    prov = normalize_provider(provider)
+    if prov is None:
+        raise HTTPException(status_code=404, detail="Provedor desconhecido. Use 'gemini' ou 'nvidia'.")
+    key = get_setting("google_api_key" if prov == "google" else "nvidia_api_key", "")
+    return list_models(prov, key, force_refresh=refresh)
 
 
 class TestKeyModel(BaseModel):
