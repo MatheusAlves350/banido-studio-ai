@@ -78,6 +78,8 @@ WHISPER_COMPUTE_TYPE = (os.getenv("BANIDO_WHISPER_COMPUTE_TYPE") or "auto").stri
 # Transcrição separada por faixa (microfone do anfitrião x Discord) quando há mic isolado.
 # Detecta falas sobrepostas, mas roda o Whisper uma vez por faixa. "0" volta ao modo de mix único.
 SEPARATE_TRACK_TRANSCRIPTION = (os.getenv("BANIDO_SEPARATE_TRACKS") or "1").strip().lower() not in ("0", "false", "no", "nao", "não")
+# Preserva o mix original (Faixa 1) como faixa extra de backup lossless na normalização de áudio ("0" desativa).
+KEEP_ORIG_AUDIO_BACKUP = (os.getenv("BANIDO_KEEP_ORIG_AUDIO_BACKUP") or "1").strip().lower() not in ("0", "false", "no", "nao", "não")
 _raw_lang = (os.getenv("BANIDO_WHISPER_LANGUAGE") or "pt").strip()
 WHISPER_LANGUAGE: Optional[str] = None if _raw_lang.lower() in ("auto", "none", "") else _raw_lang
 

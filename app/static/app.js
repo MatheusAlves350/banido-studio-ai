@@ -263,6 +263,7 @@ function setupEventListeners() {
 
     document.getElementById("btn-start-process").addEventListener("click", startProcessing);
     document.getElementById("btn-normalize-audio").addEventListener("click", normalizeVideoAudio);
+    document.getElementById("btn-remove-audio-backup")?.addEventListener("click", removeVideoAudioBackup);
     document.getElementById("btn-normalize-batch").addEventListener("click", toggleBatchAudioNormalize);
     document.getElementById("btn-reanalyze-ai").addEventListener("click", reanalyzeAiOnly);
     document.getElementById("btn-retry-ai-only").addEventListener("click", reanalyzeAiOnly);
@@ -805,6 +806,10 @@ async function fetchVideoDetails(videoId, includeData = true) {
         const errorContainer = document.getElementById("error-container");
         const btnStart = document.getElementById("btn-start-process");
         const btnNormAudio = document.getElementById("btn-normalize-audio");
+        const btnRemoveBackup = document.getElementById("btn-remove-audio-backup");
+        if (btnRemoveBackup) {
+            btnRemoveBackup.style.display = (v.audio_normalized && v.status !== "processing") ? "inline-flex" : "none";
+        }
         const btnReanalyze = document.getElementById("btn-reanalyze-ai");
         const btnReset = document.getElementById("btn-reset-process");
 
@@ -2173,5 +2178,33 @@ async function saveSettings() {
         document.getElementById("settings-modal").style.display = "none";
     } catch (e) {
         alert("Erro ao salvar configurações: " + e);
+    }
+}
+
+async function removeVideoAudioBackup() {
+    if (!activeVideoId) return;
+    if (!confirm("Remover a faixa extra de backup do mix original deste MKV?\n\nO vídeo 4K e as demais faixas não são re-renderizados (stream copy lossless). Só faça isso depois de conferir que o áudio normalizado ficou bom.")) {
+        return;
+    }
+    const btn = document.getElementById("btn-remove-audio-backup");
+    const origTxt = btn ? btn.textContent : "";
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = "⏳ Removendo backup...";
+        }
+        const res = await fetch(`/api/audio/remove-backup/${activeVideoId}`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        alert(data.message || "Backup removido com sucesso.");
+        if (btn && !data.skipped) btn.style.display = "none";
+        await loadVideos(false);
+    } catch (e) {
+        alert("Não foi possível remover o backup de áudio: " + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = origTxt;
+        }
     }
 }

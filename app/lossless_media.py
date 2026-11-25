@@ -794,7 +794,8 @@ def normalize_mkv_audio_lossless(
     for a_idx in range(1, orig_audio):
         cmd.extend(["-map", f"0:a:{a_idx}"])
     # Preservar o mix original (0:a:0) como faixa extra de backup lossless (sem alterar índices 2..N)
-    append_backup = not bool(info.get("has_original_backup"))
+    from app.config import KEEP_ORIG_AUDIO_BACKUP
+    append_backup = KEEP_ORIG_AUDIO_BACKUP and not bool(info.get("has_original_backup"))
     if append_backup:
         cmd.extend(["-map", "0:a:0"])
 
@@ -906,3 +907,90 @@ def normalize_mkv_audio_lossless(
                 stderr_log.unlink()
             except Exception:
                 pass
+
+
+def remove_original_mix_backup(mkv_path: Path) -> Dict[str, Any]:
+    """
+    Remove a faixa extra de backup do mix original (BANIDO_ORIGINAL_MIX=1) via stream copy
+    100% lossless (-c copy), liberando espaço sem re-renderizar vídeo nem áudio.
+    """
+    if not mkv_path.exists():
+        return {"success": False, "error": f"Arquivo MKV não encontrado: {mkv_path}"}
+
+    try:
+        orig_stat = mkv_path.stat()
+        orig_size = orig_stat.st_size
+        orig_atime = orig_stat.st_atime
+        orig_mtime = orig_stat.st_mtime
+        info = inspect_mkv_audio_norm(mkv_path)
+    except Exception as e:
+        return {"success": False, "error": f"Falha ao inspecionar MKV com ffprobe: {e}"}
+
+    backup_idx = info.get("original_backup_index")
+    if backup_idx is None:
+        return {
+            "success": True,
+            "skipped": True,
+            "freed_mb": 0.0,
+            "message": "Este vídeo não possui faixa extra de backup para remover.",
+        }
+
+    orig_audio = info["audio_streams"]
+    if orig_audio <= 1:
+        return {"success": False, "error": "Não é possível remover a única faixa de áudio do vídeo."}
+
+    temp_mkv = mkv_path.with_name(f".{mkv_path.stem}.strip_backup_tmp.mkv")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(mkv_path),
+        "-map", "0:v",
+        "-map", "0:a",
+        "-map", f"-0:a:{backup_idx}",
+        "-map_metadata", "0",
+        "-map_chapters", "0",
+        "-c", "copy",
+        str(temp_mkv),
+    ]
+
+    replaced = False
+    try:
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode != 0 or not temp_mkv.exists():
+            err = (res.stderr or b"").decode("utf-8", errors="ignore")[-400:]
+            return {"success": False, "error": f"FFmpeg falhou ao remover backup: {err}"}
+
+        new_info = inspect_mkv_audio_norm(temp_mkv)
+        if new_info["video_streams"] < 1 or new_info["audio_streams"] != orig_audio - 1:
+            return {
+                "success": False,
+                "error": (
+                    f"Contagem de streams divergiu ao remover backup "
+                    f"(áudio={new_info['audio_streams']} vs esperado {orig_audio - 1}). Original preservado!"
+                ),
+            }
+
+        new_size = temp_mkv.stat().st_size
+        freed_mb = round(max(0, orig_size - new_size) / (1024 ** 2), 1)
+        os.replace(str(temp_mkv), str(mkv_path))
+        replaced = True
+        try:
+            os.utime(str(mkv_path), (orig_atime, orig_mtime))
+        except Exception:
+            pass
+        return {
+            "success": True,
+            "skipped": False,
+            "freed_mb": freed_mb,
+            "audio_streams": new_info["audio_streams"],
+            "filename": mkv_path.name,
+            "message": f"Faixa de backup removida com sucesso (~{freed_mb:.1f} MB liberados).",
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Erro ao remover faixa de backup: {e}"}
+    finally:
+        if not replaced and temp_mkv.exists():
+            try:
+                temp_mkv.unlink()
+            except Exception:
+                pass
+
