@@ -17,10 +17,12 @@ jobs:
       - name: Instalar Inno Setup
         run: choco install innosetup -y --no-progress
 
-      - name: Compilar BanidoStudio-Setup.exe
+      - name: Gravar VERSION e compilar BanidoStudio-Setup.exe
         shell: pwsh
         run: |
           $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          # O arquivo VERSION entra no instalador; o painel usa para saber se ha versao nova (releases).
+          Set-Content -Path VERSION -Value $v -Encoding ASCII -NoNewline
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" installer\banido_studio.iss
 
       - uses: actions/upload-artifact@v4
@@ -42,5 +44,7 @@ jobs:
             3. Aguarde (10 a 30 minutos; downloads grandes) e abra o atalho **Banido Studio AI**.
 
             **Não baixe "Source code (zip)" ou "Source code (tar.gz)"**: são apenas o código-fonte, para programadores.
+
+            Já tem o programa instalado? Abra o painel e clique em **Versão** (canto inferior esquerdo) para atualizar com um clique.
 
             Requisitos: Windows 10/11 de 64 bits, placa NVIDIA (recomendado) e cerca de 15 GB livres.
