@@ -858,6 +858,3 @@ button[hidden] { display: none !important; }
 .obs-diff { border: 1px solid var(--line); border-radius: var(--r-ctrl); padding: 10px 12px; font-size: 13px; }
 .obs-diff ul { margin: 0; padding-left: 18px; }
 .obs-footer-right { display: flex; gap: 8px; margin-left: auto; }
-
-/* Botões escondidos pelo atributo hidden (as classes de botão trocam o display) */
-button[hidden] { display: none !important; }
