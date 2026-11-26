@@ -206,3 +206,17 @@ class NvidiaProvider:
             self.api_key, transcript_text, model_name=self.model_name,
             duration_sec=duration_sec, progress_callback=progress_callback,
         )
+
+
+def generate_text_nvidia(api_key: str, model_name: str, system: str, user: str, temperature: float) -> str:
+    """Chamada curta, só texto (usada para refazer um título). Devolve o texto puro."""
+    from openai import OpenAI
+
+    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key, timeout=120.0)
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=temperature,
+        max_tokens=512,
+    )
+    return (response.choices[0].message.content or "").strip()

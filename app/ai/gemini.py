@@ -245,3 +245,14 @@ class GeminiProvider:
             model_name=self.model_name, duration_sec=duration_sec,
             progress_callback=progress_callback,
         )
+
+
+def generate_text_gemini(api_key: str, model_name: str, system: str, user: str, temperature: float) -> str:
+    """Chamada curta, só texto, sem mosaico (usada para refazer um título). Devolve o texto puro."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    cfg = types.GenerateContentConfig(system_instruction=system, temperature=temperature)
+    response = client.models.generate_content(model=model_name, contents=user, config=cfg)
+    return (response.text or "").strip()
