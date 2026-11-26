@@ -24,6 +24,7 @@ from app.lossless_media import (
 from app.voice_bank import (
     list_known_voice_names
 )
+from app.friendly_errors import explain
 from app.worker_control import (
     ACTIVE_PROCESSES,
     AUDIO_NORM_CHECK_CACHE,
@@ -142,6 +143,9 @@ def get_video_details(video_id: int, include_data: bool = True):
     if not video:
         raise HTTPException(status_code=404, detail="Vídeo não encontrado")
     video["is_worker_alive"] = video_id in ACTIVE_PROCESSES
+    msg = video.get("progress_msg") or ""
+    if video.get("status") == "error" or (video.get("status") == "unprocessed" and "interrompido" in msg):
+        video["error_info"] = explain(msg)
     if include_data:
         video["known_friends"] = list_known_voice_names(exclude_host=False)
 

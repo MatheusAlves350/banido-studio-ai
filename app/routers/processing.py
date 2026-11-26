@@ -14,6 +14,7 @@ from app.database import (
     create_job_record, set_job_pid, finish_job_record, get_job_history,
     get_job_by_id, get_latest_job_for_video, now_str
 )
+from app.friendly_errors import friendly_text
 from app.worker_control import (
     ACTIVE_PROCESSES,
     AUDIO_NORM_CHECK_CACHE,
@@ -279,4 +280,7 @@ def get_specific_job_logs(job_id: int, tail: int = 800):
 def list_job_history(limit: int = 50, video_id: Optional[int] = None):
     reconcile_worker_processes()
     jobs = get_job_history(limit=limit, video_id=video_id)
+    for job in jobs:
+        if job.get("status") == "error":
+            job["error_friendly"] = friendly_text(job.get("error_detail") or job.get("last_step"))
     return {"jobs": jobs}
