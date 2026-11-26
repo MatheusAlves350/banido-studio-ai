@@ -55,7 +55,14 @@ ROTAS_ESPERADAS = [
     ("POST", "/api/update/apply", "update_apply"),
     ("GET", "/api/update/progress", "update_progress"),
     ("POST", "/api/update/restart", "update_restart"),
-    ("GET", "/api/diagnostics/report", "get_diagnostic_report")
+    ("GET", "/api/diagnostics/report", "get_diagnostic_report"),
+    ("GET", "/api/backup/status", "backup_status"),
+    ("POST", "/api/backup/create", "backup_create"),
+    ("POST", "/api/backup/download", "backup_download"),
+    ("POST", "/api/backup/preview", "backup_preview"),
+    ("POST", "/api/backup/import", "backup_import"),
+    ("POST", "/api/backup/restore", "backup_restore"),
+    ("POST", "/api/backup/folder", "backup_folder"),
 ]
 
 
