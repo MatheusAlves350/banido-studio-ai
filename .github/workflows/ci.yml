@@ -30,7 +30,7 @@ jobs:
       - name: Syntax check (Python AST & JS)
         run: |
           python -c "import ast, pathlib; [ast.parse(f.read_text(encoding='utf-8'), filename=str(f)) for f in pathlib.Path('app').glob('*.py')]"
-          node --check app/static/app.js
+          for f in app/static/*.js app/static/js/*.js; do node --check "$f"; done
           bash -n start.sh
 
       - name: Lint with Ruff
