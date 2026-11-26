@@ -2,6 +2,7 @@
   Banido Studio AI - instalador para Windows.
 
   O que faz (o programa fica em uma unica pasta, sem mexer no resto do computador):
+    0. pergunta ONDE instalar o programa (lista de discos com espaco livre; Enter = recomendado)
     1. copia o programa para <InstallDir>\codigo
     2. pergunta onde guardar os DADOS (gravacoes, cortes, modelos), com lista numerada e janela de escolha
     3. baixa um Python portatil (runtime\) e instala as dependencias (PyTorch com CUDA, se houver placa NVIDIA)
@@ -41,14 +42,19 @@ $MkvFallback     = '86.0'
 $GbPrograma = 10   # Python + PyTorch/CUDA + FFmpeg + MKVToolNix + downloads temporarios
 $GbDados    = 15   # modelos (Whisper ~3 GB, SpeechBrain etc.) + folga para gravacoes e cortes
 
-$CodigoDir  = Join-Path $InstallDir 'codigo'
-$RuntimeDir = Join-Path $InstallDir 'runtime'
-$ToolsDir   = Join-Path $InstallDir 'tools'
-$CacheDir   = Join-Path $InstallDir 'cache'
-$PythonExe  = Join-Path $RuntimeDir 'python.exe'
+# Pasta padrao (a mesma do instalador .exe). A pergunta de local so aparece quando nao se passa -InstallDir.
+$InstalacaoPadrao    = Join-Path $env:LOCALAPPDATA 'BanidoStudio'
+$InstallDirExplicito = $PSBoundParameters.ContainsKey('InstallDir')
 
-New-Item -ItemType Directory -Force -Path $InstallDir, $CacheDir, $ToolsDir | Out-Null
-try { Start-Transcript -Path (Join-Path $InstallDir 'instalacao.log') -Append | Out-Null } catch {}
+function DefinirCaminhos([string]$dir) {
+    $script:InstallDir = $dir
+    $script:CodigoDir  = Join-Path $dir 'codigo'
+    $script:RuntimeDir = Join-Path $dir 'runtime'
+    $script:ToolsDir   = Join-Path $dir 'tools'
+    $script:CacheDir   = Join-Path $dir 'cache'
+    $script:PythonExe  = Join-Path $script:RuntimeDir 'python.exe'
+}
+DefinirCaminhos $InstallDir
 
 function Etapa([string]$n, [string]$texto) { Write-Host ""; Write-Host "[$n] $texto" -ForegroundColor Cyan }
 
@@ -184,6 +190,60 @@ function EscolherPastaDados($discos) {
     return (Join-Path $CodigoDir 'data')
 }
 
+# Escolha da pasta do PROGRAMA sem precisar digitar caminho:
+#   numero da lista (Enter = recomendado), P = janela de pastas, ou um caminho completo.
+# Recomendado: se ja existe uma instalacao numa das opcoes, ela (sera atualizada); senao o disco com mais espaco.
+function EscolherPastaPrograma($discos) {
+    $opcoes = New-Object System.Collections.Generic.List[object]
+    foreach ($d in $discos) {
+        $letra = $d.DeviceID
+        if ($letra -ieq $env:SystemDrive) { $pasta = $InstalacaoPadrao } else { $pasta = Join-Path ($letra + '\') 'BanidoStudio' }
+        $opcoes.Add(@{ Disco = $letra; Pasta = $pasta; Livre = ($d.FreeSpace / 1GB); Existe = (Test-Path (Join-Path $pasta 'codigo\app\main.py')) })
+    }
+    if ($opcoes.Count -eq 0) { return $InstalacaoPadrao }
+
+    $padrao = 1
+    for ($k = 0; $k -lt $opcoes.Count; $k++) { if ($opcoes[$k].Existe) { $padrao = $k + 1; break } }
+
+    for ($tentativa = 1; $tentativa -le 3; $tentativa++) {
+        Write-Host ''
+        Write-Host "Onde instalar o PROGRAMA (Python, IA, FFmpeg)? Ocupa cerca de $GbPrograma GB." -ForegroundColor Cyan
+        $i = 0
+        foreach ($o in $opcoes) {
+            $i++
+            $nota = ''
+            if ($o.Existe) { $nota = '   <- ja instalado aqui (sera atualizado)' }
+            elseif ($i -eq $padrao) { $nota = '   <- recomendado (mais espaco livre)' }
+            if ($o.Livre -lt $GbPrograma) { $nota = $nota + '   (pouco espaco)' }
+            Write-Host ('    [{0}] {1}   ({2} - {3:N1} GB livres){4}' -f $i, $o.Pasta, $o.Disco, $o.Livre, $nota)
+        }
+        Write-Host '    [P] Escolher outra pasta (abre uma janela)'
+        $r = Perguntar ("Digite o numero e aperte Enter (apenas Enter = opcao $padrao)") ([string]$padrao)
+
+        if ($r -match '^\d+$' -and [int]$r -ge 1 -and [int]$r -le $opcoes.Count) {
+            $escolhida = $opcoes[[int]$r - 1]
+            return $escolhida.Pasta
+        }
+        if ($r -match '^[pP]$') {
+            try {
+                Add-Type -AssemblyName System.Windows.Forms
+                $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+                $dlg.Description = 'Escolha a pasta onde o programa sera instalado'
+                $dlg.ShowNewFolderButton = $true
+                if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                    $p = $dlg.SelectedPath
+                    if ($p.TrimEnd('\') -match '^[A-Za-z]:$') { $p = Join-Path $p 'BanidoStudio' }
+                    return $p
+                }
+            } catch { Write-Host '    Nao consegui abrir a janela de pastas.' -ForegroundColor Yellow }
+            continue
+        }
+        if ([IO.Path]::IsPathRooted($r)) { return $r }
+        Write-Host "    Nao entendi '$r'. Digite o NUMERO da lista (por exemplo: 1)." -ForegroundColor Yellow
+    }
+    return $opcoes[$padrao - 1].Pasta
+}
+
 function LerEnv([string]$arq, [string]$chave) {
     if (-not (Test-Path $arq)) { return $null }
     foreach ($l in (Get-Content $arq)) {
@@ -210,6 +270,17 @@ function GravarEnv([string]$arq, [string]$chave, [string]$valor) {
 
 try {
     if (-not [Environment]::Is64BitOperatingSystem) { throw 'E necessario Windows de 64 bits.' }
+
+    # ------------------------------------------------------------------ 0a. onde instalar o programa
+    if (-not $InstallDirExplicito) {
+        $discosProg = @(DiscosFixos | Sort-Object FreeSpace -Descending)
+        $escolhaProg = EscolherPastaPrograma $discosProg
+        if (-not [IO.Path]::IsPathRooted($escolhaProg)) { throw "Informe um caminho completo (ex.: E:\BanidoStudio). Recebi: $escolhaProg" }
+        DefinirCaminhos $escolhaProg
+    }
+    New-Item -ItemType Directory -Force -Path $InstallDir, $CacheDir, $ToolsDir | Out-Null
+    try { Start-Transcript -Path (Join-Path $InstallDir 'instalacao.log') -Append | Out-Null } catch {}
+    Write-Host "Programa em: $InstallDir"
 
     # ------------------------------------------------------------------ 0. espaco em disco do programa
     $livreProg = GbLivresDe $InstallDir
@@ -417,16 +488,21 @@ try {
     )
     Set-Content -Path $launcher -Value $bat -Encoding ASCII
 
+    # Instalacao fora da pasta padrao ganha atalho com nome proprio, para nao substituir o de outra instalacao.
+    $nomeAtalho = 'Banido Studio AI'
+    if ($InstallDir.TrimEnd('\') -ine $InstalacaoPadrao.TrimEnd('\')) { $nomeAtalho = 'Banido Studio AI (' + (Split-Path $InstallDir -Leaf) + ')' }
     if (-not $SemAtalho) {
         try {
             $shell = New-Object -ComObject WScript.Shell
-            $lnk = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) 'Banido Studio AI.lnk'))
+            $lnk = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) ($nomeAtalho + '.lnk')))
             $lnk.TargetPath = $launcher
             $lnk.WorkingDirectory = $InstallDir
             $lnk.Description = 'Banido Studio AI'
             $lnk.Save()
         } catch { Write-Host "    nao consegui criar o atalho: $($_.Exception.Message)" -ForegroundColor Yellow }
     }
+    # Informa aos .bat de onde abrir o programa (a instalacao pode estar fora da pasta padrao).
+    try { [System.IO.File]::WriteAllText((Join-Path $env:TEMP 'banido_ultima_instalacao.txt'), $launcher, (New-Object System.Text.UTF8Encoding($false))) } catch {}
 
     # Verificacao rapida
     $info = ExecutarQuieto $PythonExe @('-c', "import torch; print(torch.__version__, 'sim' if torch.cuda.is_available() else 'nao')")
@@ -441,7 +517,8 @@ try {
     Write-Host ""
     Write-Host 'INSTALACAO CONCLUIDA!' -ForegroundColor Green
     Write-Host "Dados (gravacoes, cortes, modelos): $baseAtual"
-    Write-Host "Para abrir depois, use o atalho 'Banido Studio AI' na Area de Trabalho."
+    Write-Host "Programa em: $InstallDir"
+    Write-Host "Para abrir depois, use o atalho '$nomeAtalho' na Area de Trabalho (ou $launcher)."
     Write-Host 'Na primeira transcricao o modelo Whisper (cerca de 3 GB) sera baixado automaticamente, se ainda nao existir.'
     try { Stop-Transcript | Out-Null } catch {}
     exit 0

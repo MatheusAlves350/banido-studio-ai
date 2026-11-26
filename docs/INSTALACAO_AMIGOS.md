@@ -20,9 +20,12 @@ Este guia explica como instalar o Banido Studio AI **sem** instalar Python, FFmp
 
 1. No GitHub, clique em **Code > Download ZIP** e extraia a pasta.
 2. Dê dois cliques em `Instalar_Banido_Studio.bat`.
-3. Use o atalho criado na Área de Trabalho.
+3. O instalador mostra uma **lista de discos com o espaço livre** e indica o recomendado. Digite o número e aperte Enter (só Enter = opção recomendada), ou digite **P** para escolher uma pasta numa janela. Não é preciso digitar caminhos.
+4. Use o atalho criado na Área de Trabalho.
 
-Tudo é instalado em `%LOCALAPPDATA%\BanidoStudio` (pasta do seu usuário). Nada é alterado no restante do Windows.
+Se já existe uma instalação em uma das opções, ela aparece marcada como "já instalado aqui (será atualizado)" e é a opção padrão. Nada é alterado no restante do Windows.
+
+Para instalar uma cópia separada (por exemplo, de teste), escolha **outra pasta ou outro disco** na lista. A cópia ganha um atalho com nome próprio na Área de Trabalho.
 
 ## Primeiro uso
 
