@@ -50,9 +50,12 @@ if defined NEEDS_INSTALL if not defined BANIDO_NO_AUTOINSTALL if exist "%APP_DIR
     set "BANIDO_CHAMADO_PELO_INICIAR=1"
     call "%APP_DIR%\Instalar_Banido_Studio.bat"
     if !errorlevel! neq 0 exit /b 1
-    if exist "%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat" (
+    rem O instalador grava onde instalou (pode ser outro disco).
+    set "LANCADOR=%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat"
+    if exist "%TEMP%\banido_ultima_instalacao.txt" set /p LANCADOR=<"%TEMP%\banido_ultima_instalacao.txt"
+    if exist "!LANCADOR!" (
         set "BANIDO_NO_AUTOINSTALL=1"
-        call "%LOCALAPPDATA%\BanidoStudio\Banido_Studio.bat"
+        call "!LANCADOR!"
     )
     exit /b 0
 )
