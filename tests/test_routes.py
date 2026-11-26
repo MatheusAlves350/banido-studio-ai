@@ -34,6 +34,7 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/history", "list_job_history"),
     ("POST", "/api/rename/{video_id}", "rename_video"),
     ("GET", "/api/audio/preview/{video_id}", "preview_highlight_audio"),
+    ("GET", "/api/video/preview/{video_id}", "preview_clip_video"),
     ("POST", "/api/cut", "cut_highlight"),
     ("POST", "/api/embed-chapters/{video_id}", "embed_chapters"),
     ("GET", "/api/speakers/preview/{video_id}/{speaker_tag:path}", "preview_speaker_audio"),

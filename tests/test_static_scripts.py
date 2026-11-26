@@ -8,7 +8,8 @@ from pathlib import Path
 
 ESTATICOS = Path(__file__).resolve().parent.parent / "app" / "static"
 ORDEM = ["api", "state", "utils", "events", "status", "videos",
-         "transcript", "speakers", "highlights", "processing", "history", "settings"]
+         "transcript", "speakers", "highlights", "processing", "history", "settings",
+         "clip_preview"]
 
 
 def _scripts_do_html():
@@ -21,7 +22,7 @@ def test_scripts_da_interface_na_ordem():
     esperado = [f"js/{n}.js" for n in ORDEM]
     assert scripts[:len(esperado)] == esperado
     for outro in ("guide.js", "updater.js", "setup.js", "diagnostics.js"):
-        assert scripts.index(outro) > scripts.index("js/settings.js")
+        assert scripts.index(outro) > scripts.index("js/clip_preview.js")
 
 
 def test_todos_os_scripts_existem_e_nao_sao_modulos():

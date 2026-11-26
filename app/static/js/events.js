@@ -46,6 +46,8 @@ function setupEventListeners() {
         btnManualCut.addEventListener("click", exportManualCut);
     }
 
+    document.getElementById("btn-manual-cut-preview")?.addEventListener("click", previewManualCut);
+
     const btnToggleTranscript = document.getElementById("btn-toggle-transcript");
     if (btnToggleTranscript) {
         btnToggleTranscript.addEventListener("click", () => {
