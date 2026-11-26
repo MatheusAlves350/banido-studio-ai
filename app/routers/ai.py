@@ -119,6 +119,8 @@ def import_claude_response(video_id: int, req: ClaudeImportRequest):
         ai_data = video["data"]
         ai_data.update(parsed)
         ai_data["ai_warning"] = ""
+        from app.ai.highlight_check import check_highlights
+        check_highlights(ai_data, video.get("duration_sec"))
         ai_data["youtube_description"] = build_youtube_description(ai_data)
 
         save_video_result(
