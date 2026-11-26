@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from app import security
+from app import cut_batch, security
 
 from app.config import (
     TEMP_DIR
@@ -109,6 +109,65 @@ def cut_highlight(req: CutRequest):
     if not res["success"]:
         raise HTTPException(status_code=500, detail=res.get("error", "Erro ao exportar corte"))
     return res
+
+
+class CutItem(BaseModel):
+    start_sec: float
+    end_sec: float
+    title: str = "Corte"
+
+
+class CutBatchRequest(BaseModel):
+    video_id: int
+    items: list[CutItem]
+    boost_discord: bool = True
+    keep_all_tracks: bool = False
+    exact_cut: bool = False
+
+
+@router.post("/api/cut/batch")
+def start_cut_batch(req: CutBatchRequest):
+    """C3: exporta vários cortes em fila (um por vez, em ordem cronológica)."""
+    _ensure_not_busy(req.video_id, "exportar cortes deste vídeo")
+    video = get_video_by_id(req.video_id, include_data=False)
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+    mkv_path = Path(video["file_path"])
+    if not mkv_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo MKV não encontrado no disco")
+    try:
+        job_id = cut_batch.start_batch(
+            req.video_id, mkv_path, [i.model_dump() for i in req.items],
+            options={
+                "boost_discord": req.boost_discord,
+                "keep_all_tracks": req.keep_all_tracks,
+                "exact_cut": req.exact_cut,
+            },
+            busy_check=lambda: _ensure_not_busy(req.video_id, "exportar cortes deste vídeo"),
+            source_bytes=int(video.get("file_size_bytes") or 0),
+            source_duration=float(video.get("duration_sec") or 0.0),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return cut_batch.get_job(job_id)
+
+
+@router.get("/api/cut/batch/{job_id}")
+def get_cut_batch(job_id: str):
+    job = cut_batch.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Fila de cortes não encontrada")
+    return job
+
+
+@router.post("/api/cut/batch/{job_id}/cancel")
+def cancel_cut_batch(job_id: str):
+    """Cancela os itens que ainda não começaram (o corte em andamento termina)."""
+    if not cut_batch.cancel_job(job_id):
+        raise HTTPException(status_code=404, detail="Nenhuma fila em andamento com este código")
+    return {"success": True}
 
 
 class EmbedChaptersRequest(BaseModel):

@@ -46,6 +46,8 @@ function setupEventListeners() {
         btnManualCut.addEventListener("click", exportManualCut);
     }
 
+    setupBatchCutBar();
+
     const btnToggleTranscript = document.getElementById("btn-toggle-transcript");
     if (btnToggleTranscript) {
         btnToggleTranscript.addEventListener("click", () => {

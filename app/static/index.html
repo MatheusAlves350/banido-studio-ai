@@ -317,6 +317,14 @@
                                 </label>
                                 <span class="field-hint">Sem o corte exato, o corte começa no quadro-chave anterior e pode ter 1 ou 2 segundos a mais.</span>
                                 </div>
+                                <div class="manual-cut-bar batch-cut-bar">
+                                    <span class="manual-cut-label">Lote</span>
+                                    <button type="button" id="btn-batch-select-all" class="btn-secondary btn-sm">Selecionar todos</button>
+                                    <button type="button" id="btn-batch-export" class="btn-secondary btn-sm" disabled>Exportar selecionados (0)</button>
+                                    <button type="button" id="btn-batch-cancel" class="btn-secondary btn-sm" hidden>Cancelar fila</button>
+                                </div>
+                                <p class="field-hint" id="batch-cut-status" role="status"></p>
+                                <ul class="batch-cut-list" id="batch-cut-list"></ul>
                                 <div class="highlights-grid" id="highlights-grid"></div>
                             </section>
                         </div>
@@ -488,6 +496,7 @@
     <script src="/static/js/processing.js?v=1"></script>
     <script src="/static/js/history.js?v=1"></script>
     <script src="/static/js/settings.js?v=1"></script>
+    <script src="/static/js/cut_batch.js?v=1"></script>
     <script src="/static/guide.js?v=1"></script>
     <script src="/static/updater.js?v=2"></script>
     <script src="/static/setup.js?v=1"></script>

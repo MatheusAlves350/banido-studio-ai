@@ -800,3 +800,7 @@ button:disabled { cursor: default; opacity: 0.5; }
     .history-modal-body { grid-template-columns: 1fr; }
     .history-list-pane { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line-soft); }
 }
+
+/* ---------- C3: lote de cortes ---------- */
+.batch-cut-list { margin: 6px 0 12px; padding-left: 18px; font-size: 13px; }
+.batch-cut-list li { margin-bottom: 3px; }
