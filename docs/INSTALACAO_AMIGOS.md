@@ -20,9 +20,25 @@ Este guia explica como instalar o Banido Studio AI **sem** instalar Python, FFmp
 
 1. No GitHub, clique em **Code > Download ZIP** e extraia a pasta.
 2. Dê dois cliques em `Instalar_Banido_Studio.bat`.
-3. Use o atalho criado na Área de Trabalho.
+3. O instalador mostra uma **lista de discos com o espaço livre** e sugere o melhor. Digite o número e aperte Enter (só Enter = opção 1), ou digite **P** para escolher uma pasta numa janela. Não é preciso digitar caminhos.
+4. Use o atalho criado na Área de Trabalho.
 
-Tudo é instalado em `%LOCALAPPDATA%\BanidoStudio` (pasta do seu usuário). Nada é alterado no restante do Windows.
+Se você só aceitar a primeira opção em um PC com um único disco, o programa fica em `%LOCALAPPDATA%\BanidoStudio` (pasta do seu usuário). Nada é alterado no restante do Windows.
+
+### Já tenho uma instalação e quero uma cópia de teste
+
+Quando o instalador encontra outra instalação, ele pergunta se você quer:
+
+1. **Atualizar** a instalação existente (opção padrão), ou
+2. **Criar uma instalação nova e separada** (para testes). Ela nunca é colocada em cima da principal: o instalador sugere uma pasta como `E:\BanidoStudio-teste`, com os próprios dados.
+
+Na instalação separada o instalador também sugere, automaticamente:
+
+- uma **porta diferente** (por exemplo 8766), para as duas poderem ficar abertas ao mesmo tempo;
+- usar a **mesma pasta de gravações do OBS** da outra instalação (você confirma com S ou N);
+- um **atalho com nome próprio** na Área de Trabalho, para não substituir o da instalação principal.
+
+Para remover uma cópia de teste, rode `installer\Desinstalar.ps1 -InstallDir <pasta da cópia>`.
 
 ## Primeiro uso
 
@@ -41,7 +57,8 @@ Baixe o instalador novo e execute-o de novo (ou rode `Instalar_Banido_Studio.bat
 | A instalação parou no meio | Execute o instalador de novo: ele continua de onde parou. |
 | "CUDA disponível: nao" no final | Atualize o driver da NVIDIA e reinstale com o instalador. |
 | Erro de rede/download | Verifique a internet/antivírus e execute de novo. O registro fica em `%LOCALAPPDATA%\BanidoStudio\instalacao.log`. |
-| Duas cópias ao mesmo tempo | Use portas diferentes (`BANIDO_PORT` no `.env`). |
+| Duas cópias ao mesmo tempo | A instalação separada já escolhe outra porta sozinha. Se precisar mudar, edite `BANIDO_PORT` no `.env`. |
+| Não quero instalar no disco C: | Na lista de discos, escolha outro número (ou **P** para escolher a pasta). |
 
 ## Para quem mantém o projeto
 
