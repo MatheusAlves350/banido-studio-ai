@@ -521,6 +521,8 @@ function renderCompletedVideo(v) {
     renderTopics(data.topics || []);
     setupTranscriptExplorer(data.segments || []);
 
+    if (typeof renderPublishPack === "function") renderPublishPack(data);
+
     const ytDesc = data.youtube_description || "";
     lastYoutubeTagsCsv = data.youtube_tags_csv || "";
     document.getElementById("yt-description-box").value = ytDesc;

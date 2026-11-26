@@ -100,7 +100,7 @@
                         <button type="button" class="flow-step" data-step="1" data-target="step-setup"><span class="flow-num">1</span><span class="flow-label">Escolher o jogo</span></button>
                         <button type="button" class="flow-step" data-step="2" data-target="step-setup"><span class="flow-num">2</span><span class="flow-label">Processar</span></button>
                         <button type="button" class="flow-step" data-step="3" data-tab="tab-vozes"><span class="flow-num">3</span><span class="flow-label">Conferir vozes</span></button>
-                        <button type="button" class="flow-step" data-step="4" data-tab="tab-titulo"><span class="flow-num">4</span><span class="flow-label">Publicar</span></button>
+                        <button type="button" class="flow-step" data-step="4" data-tab="tab-publicar"><span class="flow-num">4</span><span class="flow-label">Publicar</span></button>
                     </nav>
 
                     <!-- ETAPAS 1 E 2: JOGO + PROCESSAR -->
@@ -245,6 +245,7 @@
                             <button type="button" role="tab" class="tab" id="tab-btn-titulo" aria-controls="tab-titulo" aria-selected="true">Título e resumo</button>
                             <button type="button" role="tab" class="tab" id="tab-btn-vozes" aria-controls="tab-vozes" aria-selected="false">Vozes <span class="tab-count" id="tab-count-vozes"></span></button>
                             <button type="button" role="tab" class="tab" id="tab-btn-momentos" aria-controls="tab-momentos" aria-selected="false">Melhores momentos</button>
+                            <button type="button" role="tab" class="tab" id="tab-btn-publicar" aria-controls="tab-publicar" aria-selected="false">Pacote de publicação</button>
                             <button type="button" role="tab" class="tab" id="tab-btn-youtube" aria-controls="tab-youtube" aria-selected="false">Descrição do YouTube</button>
                             <button type="button" role="tab" class="tab" id="tab-btn-transcricao" aria-controls="tab-transcricao" aria-selected="false">Legenda</button>
                             <button type="button" role="tab" class="tab" id="tab-btn-avancado" aria-controls="tab-avancado" aria-selected="false">Avançado</button>
@@ -323,6 +324,55 @@
                                 <span class="field-hint">Sem o corte exato, o corte começa no quadro-chave anterior e pode ter 1 ou 2 segundos a mais.</span>
                                 </div>
                                 <div class="highlights-grid" id="highlights-grid"></div>
+                            </section>
+                        </div>
+
+                        <!-- ABA: PACOTE DE PUBLICAÇÃO -->
+                        <div class="tab-panel" role="tabpanel" id="tab-publicar" aria-labelledby="tab-btn-publicar" hidden>
+                            <section class="card pack">
+                                <div class="card-title-group">
+                                    <h3>Tudo para publicar no YouTube</h3>
+                                    <button type="button" id="pack-copy-all" class="btn-primary">Copiar tudo</button>
+                                </div>
+                                <p class="section-desc">Cada bloco tem o seu botão de copiar. A ordem é a do formulário do YouTube Studio: título, descrição e tags. O programa não envia nada para lugar nenhum: a publicação é feita por você.</p>
+                                <p id="pack-empty" class="section-desc" hidden>Este vídeo ainda não tem título, descrição e capítulos. Processe o vídeo primeiro.</p>
+                            </section>
+                            <section class="card pack-block">
+                                <div class="card-title-group">
+                                    <h3>Título</h3>
+                                    <span class="tag-badge" id="pack-title-count">0 / 100</span>
+                                </div>
+                                <p class="section-desc">É o título escolhido na aba “Título e resumo”. Para trocar, volte lá.</p>
+                                <div class="pack-row">
+                                    <input type="text" id="pack-title" readonly aria-label="Título">
+                                    <button type="button" class="btn-secondary" data-pack-copy="title">Copiar título</button>
+                                </div>
+                            </section>
+                            <section class="card pack-block">
+                                <div class="card-title-group">
+                                    <h3>Descrição</h3>
+                                    <span class="tag-badge" id="pack-desc-count">0 / 5.000</span>
+                                </div>
+                                <p class="section-desc">Já inclui o resumo, a ficha técnica e os capítulos com horário.</p>
+                                <textarea id="pack-desc" rows="8" readonly aria-label="Descrição"></textarea>
+                                <div class="yt-actions"><button type="button" class="btn-secondary" data-pack-copy="desc">Copiar descrição</button></div>
+                            </section>
+                            <section class="card pack-block">
+                                <div class="card-title-group">
+                                    <h3>Tags</h3>
+                                    <span class="tag-badge" id="pack-tags-count">0 / 500</span>
+                                </div>
+                                <textarea id="pack-tags" rows="2" readonly aria-label="Tags"></textarea>
+                                <div class="yt-actions"><button type="button" class="btn-secondary" data-pack-copy="tags">Copiar tags</button></div>
+                            </section>
+                            <section class="card pack-block">
+                                <div class="card-title-group">
+                                    <h3>Capítulos</h3>
+                                    <span class="tag-badge" id="pack-chapters-count">0 capítulos</span>
+                                </div>
+                                <p class="section-desc">Só os capítulos, para quem prefere colar separado. O primeiro precisa começar em 00:00:00 e o YouTube exige pelo menos 3.</p>
+                                <textarea id="pack-chapters" rows="6" readonly aria-label="Capítulos"></textarea>
+                                <div class="yt-actions"><button type="button" class="btn-secondary" data-pack-copy="chapters">Copiar capítulos</button></div>
                             </section>
                         </div>
 
@@ -517,5 +567,6 @@
     <script src="/static/diagnostics.js?v=1"></script>
     <script src="/static/avisos.js?v=1"></script>
     <script src="/static/fila.js?v=1"></script>
+    <script src="/static/pacote.js?v=1"></script>
 </body>
 </html>
