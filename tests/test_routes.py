@@ -46,6 +46,7 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/models/{provider}", "get_models"),
     ("POST", "/api/test-google-key", "test_google_key"),
     ("POST", "/api/test-nvidia-key", "test_nvidia_key"),
+    ("GET", "/api/setup/check", "setup_check"),
     ("GET", "/api/setup", "get_setup"),
     ("POST", "/api/setup/pick-folder", "setup_pick_folder"),
     ("POST", "/api/setup", "post_setup"),

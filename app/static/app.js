@@ -119,6 +119,24 @@ function escapeHtml(str) {
         .replace(/'/g, "&#39;");
 }
 
+// Nome amigável: "2026-11-20 21-14-03 - Overwatch 2 - Título.mkv" -> título + "qui., 20/11/2026 às 21:14"
+function describeRecording(filename) {
+    const name = String(filename || "").replace(/\.mkv$/i, "");
+    const m = name.match(/^(\d{4})-(\d{2})-(\d{2})[ _](\d{2})-(\d{2})(?:-(\d{2}))?(?:\s*-\s*(.+))?$/);
+    if (!m) return { title: name, when: "" };
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]));
+    const weekday = d.toLocaleDateString("pt-BR", { weekday: "short" });
+    const when = `${weekday} ${m[3]}/${m[2]}/${m[1]} às ${m[4]}:${m[5]}`;
+    return { title: m[7] ? m[7] : `Gravação de ${m[3]}/${m[2]}`, when };
+}
+
+const STATUS_LABELS = {
+    unprocessed: "Não processado",
+    processing: "Processando",
+    completed: "Pronto",
+    error: "Erro"
+};
+
 function colorizeLogHtml(rawText) {
     if (!rawText) return `<span style="color:#64748b;">Nenhum log registrado ainda para este vídeo.</span>`;
     return rawText.split("\n").map(line => {
@@ -202,7 +220,7 @@ function setupEventListeners() {
             const body = document.getElementById("transcript-explorer-body");
             const opening = body.style.display === "none";
             body.style.display = opening ? "block" : "none";
-            btnToggleTranscript.textContent = opening ? "🔼 Recolher Transcrição" : "🔽 Abrir Busca na Transcrição";
+            btnToggleTranscript.textContent = opening ? "Fechar busca" : "Abrir busca";
             if (opening) {
                 renderTranscriptResults();
             }
@@ -363,12 +381,12 @@ async function pollServerStatus() {
             studioConfig = { ...studioConfig, ...st.config };
             const obsLabel = document.getElementById("sidebar-obs-label");
             if (obsLabel && studioConfig.obs_dir) {
-                obsLabel.textContent = `GRAVAÇÕES OBS`;
+                obsLabel.textContent = "Gravações";
                 obsLabel.title = studioConfig.obs_dir;
             }
             const gpuBadge = document.getElementById("badge-gpu-label");
             if (gpuBadge && studioConfig.gpu) {
-                gpuBadge.textContent = `${studioConfig.gpu} • AV1 4K`;
+                gpuBadge.textContent = studioConfig.gpu;
             }
             const pathsBox = document.getElementById("instance-paths-info");
             if (pathsBox) {
@@ -390,14 +408,14 @@ async function pollServerStatus() {
             if (isBatchAudioRunning && st.batch_job) {
                 const bj = st.batch_job;
                 const bpct = Math.round((bj.progress_pct || 0) * 100);
-                btnBatch.innerText = `🛑 Cancelar Lote de Áudio (${bpct}%)`;
+                btnBatch.innerText = `Cancelar ajuste em lote (${bpct}%)`;
                 btnBatch.style.borderColor = "rgba(239, 68, 68, 0.55)";
                 btnBatch.style.color = "#f87171";
                 batchStatusEl.style.display = "block";
-                batchStatusEl.innerText = `⚡ ${bj.last_step || "Processando lote..."} (${formatDuration(bj.elapsed_sec)})`;
+                batchStatusEl.innerText = `${bj.last_step || "Processando lote..."} (${formatDuration(bj.elapsed_sec)})`;
                 loadVideos(false);
             } else {
-                btnBatch.innerText = "🔊 Normalizar Áudio (Todos)";
+                btnBatch.innerText = "Ajustar volume de todas";
                 btnBatch.style.borderColor = "rgba(16, 185, 129, 0.45)";
                 btnBatch.style.color = "#34d399";
                 batchStatusEl.style.display = "none";
@@ -414,18 +432,18 @@ async function pollServerStatus() {
             pulseDot.style.backgroundColor = "var(--accent-gold)";
             pulseDot.style.boxShadow = "0 0 10px var(--accent-gold)";
             statusText.style.color = "var(--accent-gold)";
-            statusText.innerText = `⚡ Executando Job #${j.job_id} (PID ${j.pid} • ${formatDuration(j.elapsed_sec)})`;
+            statusText.innerText = `Processando (${formatDuration(j.elapsed_sec)})`;
         } else {
             pulseDot.style.backgroundColor = "var(--success)";
             pulseDot.style.boxShadow = "0 0 8px var(--success)";
             statusText.style.color = "var(--text-secondary)";
-            statusText.innerText = "Servidor Online • Pronto";
+            statusText.innerText = "Pronto";
         }
     } catch (e) {
         pulseDot.style.backgroundColor = "var(--danger)";
         pulseDot.style.boxShadow = "0 0 10px var(--danger)";
         statusText.style.color = "var(--danger)";
-        statusText.innerText = "Servidor Desconectado (Abra Iniciar_Banido_Studio.bat)";
+        statusText.innerText = "Desconectado: abra o Iniciar_Banido_Studio.bat";
     }
 }
 
@@ -614,7 +632,7 @@ async function saveVideoGameAndContext(saveDefaultContext = false) {
             renderGameHistoryChips();
         }
         if (statusEl) {
-            statusEl.textContent = "✅ Salvo!";
+            statusEl.textContent = "Salvo";
             clearTimeout(statusEl._timer);
             statusEl._timer = setTimeout(() => { statusEl.textContent = ""; }, 2200);
         }
@@ -637,11 +655,10 @@ function renderVideoList(videos) {
     if (!videos || videos.length === 0) {
         const obsDir = escapeHtml(studioConfig.obs_dir || "./data/obs_recordings");
         list.innerHTML = `
-            <div style="padding: 16px; margin: 8px; border: 1px dashed var(--border-color); border-radius: 10px; font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
-                <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">📭 Nenhum arquivo .mkv encontrado</div>
-                Coloque suas gravações do OBS em:<br>
-                <code style="word-break: break-all; color: var(--accent);">${obsDir}</code><br><br>
-                Ou configure <code>BANIDO_OBS_DIR</code> no arquivo <code>.env</code> e reinicie o servidor.
+            <div class="video-list-empty">
+                <strong>Nenhuma gravação encontrada</strong>
+                <p>Coloque os arquivos .mkv do OBS nesta pasta e clique em Atualizar lista:</p>
+                <code>${obsDir}</code>
             </div>
         `;
         return;
@@ -651,25 +668,25 @@ function renderVideoList(videos) {
         const item = document.createElement("div");
         item.className = `video-item ${activeVideoId === v.id ? "active" : ""}`;
 
-        let statusBadge = `<span class="status-badge status-unprocessed">Não Processado</span>`;
+        let statusBadge = `<span class="status-badge status-unprocessed">${STATUS_LABELS.unprocessed}</span>`;
         if (v.status === "processing") {
-            statusBadge = `<span class="status-badge status-processing">⚡ ${Math.round((v.progress_pct || 0) * 100)}%</span>`;
+            statusBadge = `<span class="status-badge status-processing">${Math.round((v.progress_pct || 0) * 100)}%</span>`;
         } else if (v.status === "completed") {
-            statusBadge = `<span class="status-badge status-completed">✅ Concluído</span>`;
+            statusBadge = `<span class="status-badge status-completed">${STATUS_LABELS.completed}</span>`;
         } else if (v.status === "error") {
-            statusBadge = `<span class="status-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">❌ Erro</span>`;
+            statusBadge = `<span class="status-badge status-error">${STATUS_LABELS.error}</span>`;
         }
 
-        const audioNormTag = v.audio_normalized
-            ? ` <span title="Áudio normalizado no padrão YouTube Gold" style="color:#34d399; font-weight:700;">🔊</span>`
-            : "";
+        const rec = describeRecording(v.filename);
+        const audioNormTag = v.audio_normalized ? `<span class="meta-flag" title="Volume ajustado para o YouTube">volume ok</span>` : "";
 
         item.innerHTML = `
-            <div class="video-item-title" title="${escapeHtml(v.filename)}">${escapeHtml(v.filename)}</div>
+            <div class="video-item-title" title="${escapeHtml(v.filename)}">${escapeHtml(rec.title)}</div>
             <div class="video-item-meta">
-                <span>${v.size_gb} GB${audioNormTag}</span>
+                <span>${escapeHtml(rec.when || v.filename)}</span>
                 ${statusBadge}
             </div>
+            <div class="video-item-sub"><span>${v.size_gb} GB</span>${audioNormTag}</div>
         `;
 
         item.addEventListener("click", () => selectVideo(v.id));
@@ -700,7 +717,7 @@ async function selectVideo(videoId) {
     const trBtn = document.getElementById("btn-toggle-transcript");
     if (trBody && trBtn) {
         trBody.style.display = "none";
-        trBtn.textContent = "🔽 Abrir Busca na Transcrição";
+        trBtn.textContent = "Abrir busca";
     }
 
     document.getElementById("empty-state").style.display = "none";
@@ -734,15 +751,15 @@ async function fetchVideoLogs(videoId) {
         consoleCard.style.display = "block";
         const j = d.job;
         const statusMap = {
-            running: "⚡ EXECUTANDO",
-            completed: "✅ CONCLUÍDO",
-            error: "❌ ERRO",
-            cancelled: "🛑 CANCELADO",
-            interrupted: "⚠️ INTERROMPIDO"
+            running: "Em andamento",
+            completed: "Concluído",
+            error: "Erro",
+            cancelled: "Cancelado",
+            interrupted: "Interrompido"
         };
         const stLabel = statusMap[j.status] || j.status.toUpperCase();
         const pidTxt = j.pid ? ` • PID ${j.pid}` : "";
-        jobBadge.innerText = `Job #${j.id} • ${stLabel}${pidTxt} • ⏱️ ${formatDuration(j.elapsed_sec)} • ${j.model || j.engine}`;
+        jobBadge.innerText = `Processamento #${j.id}: ${stLabel}${pidTxt}, ${formatDuration(j.elapsed_sec)}, ${j.model || j.engine}`;
 
         if (d.log_text !== lastRawLogText) {
             lastRawLogText = d.log_text || "";
@@ -779,27 +796,24 @@ async function fetchVideoDetails(videoId, includeData = true) {
             syncGameSelectorInput(v.game_name || "", v.session_context || "");
         }
 
-        let statusColor = "var(--text-secondary)";
-        if (v.status === "completed") statusColor = "var(--success)";
-        if (v.status === "processing") statusColor = "var(--accent-gold)";
-        if (v.status === "error") statusColor = "var(--danger)";
-
-        const srtBadge = v.srt_path ? ` • <span style="color:var(--accent);">📝 .SRT Gerado</span>` : "";
-        const audioBadge = v.audio_normalized
-            ? ` • <span style="color:#34d399; font-weight:600;">🔊 Áudio YouTube OK</span>`
-            : ` • <span style="color:var(--accent-gold);">🔈 Áudio Original (OBS)</span>`;
+        const rec = describeRecording(v.filename);
+        const statusCls = { completed: "status-completed", processing: "status-processing", error: "status-error" }[v.status] || "status-unprocessed";
+        const facts = [`${v.size_gb} GB`];
+        if (v.srt_path) facts.push("legenda pronta");
+        facts.push(v.audio_normalized ? "volume ajustado para o YouTube" : "volume original do OBS");
         document.getElementById("active-video-header").innerHTML = `
-            <h2>${escapeHtml(v.filename)}</h2>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-                Tamanho: ${v.size_gb} GB • Status: <strong style="color: ${statusColor};">${v.status.toUpperCase()}</strong>${srtBadge}${audioBadge}
+            <h2 title="${escapeHtml(v.filename)}">${escapeHtml(rec.title)}</h2>
+            <div class="active-video-meta">
+                <span class="status-badge ${statusCls}">${escapeHtml(STATUS_LABELS[v.status] || v.status)}</span>
+                <span>${escapeHtml([rec.when, ...facts].filter(Boolean).join(", "))}</span>
             </div>
         `;
 
         const normHint = document.getElementById("normalize-on-process-hint");
         if (normHint) {
             normHint.innerHTML = v.audio_normalized
-                ? `<span style="color: #34d399;">✅ Este vídeo já está normalizado (etapa será pulada automaticamente)</span>`
-                : `<span>Executado ao final (vídeo 100% lossless; requer espaço livre igual ao tamanho do arquivo)</span>`;
+                ? `<span class="text-ok">Este vídeo já está com o volume ajustado. Essa etapa será pulada.</span>`
+                : "";
         }
 
         const progressContainer = document.getElementById("progress-container");
@@ -820,7 +834,7 @@ async function fetchVideoDetails(videoId, includeData = true) {
             errorContainer.style.display = "none";
 
             btnStart.disabled = true;
-            btnStart.innerText = "⏳ PROCESSANDO EM SEGUNDO PLANO...";
+            btnStart.innerText = "Processando...";
             if (btnNormAudio) {
                 btnNormAudio.disabled = true;
             }
@@ -828,7 +842,7 @@ async function fetchVideoDetails(videoId, includeData = true) {
 
             btnReset.style.display = "inline-block";
             btnReset.className = "btn-secondary btn-danger";
-            btnReset.innerText = "🛑 Cancelar Processamento";
+            btnReset.innerText = "Cancelar processamento";
 
             const pMsg = v.progress_msg || "Processando...";
             document.getElementById("progress-msg").innerText = pMsg;
@@ -864,20 +878,20 @@ async function fetchVideoDetails(videoId, includeData = true) {
             }
 
             btnStart.disabled = false;
-            btnStart.innerText = v.status === "completed" ? "🚀 REPROCESSAR TUDO" : "🚀 PROCESSAR VÍDEO COMPLETO";
+            btnStart.innerText = v.status === "completed" ? "Processar de novo" : "Processar vídeo";
             if (btnNormAudio) {
                 if (v.audio_normalized) {
                     btnNormAudio.disabled = true;
-                    btnNormAudio.innerText = "✅ Áudio YouTube OK";
+                    btnNormAudio.innerText = "Volume já ajustado";
                     btnNormAudio.style.opacity = "0.75";
                 } else {
                     btnNormAudio.disabled = false;
-                    btnNormAudio.innerText = "🔊 Normalizar Áudio (YouTube)";
+                    btnNormAudio.innerText = "Ajustar volume deste vídeo";
                     btnNormAudio.style.opacity = "1";
                 }
             }
             btnReset.className = "btn-secondary";
-            btnReset.innerText = "🔄 Reiniciar Status";
+            btnReset.innerText = "Reiniciar";
 
             if (v.status === "completed") {
                 progressContainer.style.display = "none";
@@ -892,7 +906,7 @@ async function fetchVideoDetails(videoId, includeData = true) {
                 errorContainer.style.display = "block";
                 btnReanalyze.style.display = "none";
                 btnReset.style.display = "inline-block";
-                document.getElementById("error-title").innerText = "❌ Falha na Execução:";
+                document.getElementById("error-title").innerText = "O processamento falhou:";
                 document.getElementById("error-msg").innerText = v.progress_msg || "Ocorreu um erro durante o processamento.";
                 document.getElementById("console-output").style.display = "block";
             } else {
@@ -904,7 +918,7 @@ async function fetchVideoDetails(videoId, includeData = true) {
 
                 if (v.progress_msg && v.progress_msg.includes("interrompido")) {
                     errorContainer.style.display = "block";
-                    document.getElementById("error-title").innerText = "⚠️ Sessão Anterior Interrompida:";
+                    document.getElementById("error-title").innerText = "O processamento anterior foi interrompido:";
                     document.getElementById("error-msg").innerText = v.progress_msg;
                 } else {
                     errorContainer.style.display = "none";
@@ -1086,7 +1100,7 @@ function renderTranscriptResults() {
         const btnSetStart = document.createElement("button");
         btnSetStart.type = "button";
         btnSetStart.className = "btn-tweak";
-        btnSetStart.textContent = "⏱️ Início";
+        btnSetStart.textContent = "Início";
         btnSetStart.title = "Definir este instante como início do Corte Manual";
         btnSetStart.addEventListener("click", () => {
             const startInp = document.getElementById("manual-cut-start");
@@ -1105,7 +1119,7 @@ function renderTranscriptResults() {
         const btnSetEnd = document.createElement("button");
         btnSetEnd.type = "button";
         btnSetEnd.className = "btn-tweak";
-        btnSetEnd.textContent = "🏁 Fim";
+        btnSetEnd.textContent = "Fim";
         btnSetEnd.title = `Definir ${tsEnd} como fim do Corte Manual`;
         btnSetEnd.addEventListener("click", () => {
             const endInp = document.getElementById("manual-cut-end");
@@ -1184,7 +1198,7 @@ function createVoicePreviewControl(videoId, tag, startSec) {
     btnPlay.className = "btn-secondary btn-sm";
     btnPlay.style.width = "100%";
     btnPlay.style.marginBottom = "6px";
-    btnPlay.textContent = `🔊 Ouvir Trecho da Voz${tsLabel}`;
+    btnPlay.textContent = `Ouvir trecho${tsLabel}`;
 
     const audioEl = document.createElement("audio");
     audioEl.controls = true;
@@ -1201,7 +1215,7 @@ function createVoicePreviewControl(videoId, tag, startSec) {
         }
         const origTxt = btnPlay.textContent;
         btnPlay.disabled = true;
-        btnPlay.textContent = "⏳ Extraindo trecho do MKV...";
+        btnPlay.textContent = "Carregando trecho...";
         try {
             const url = `/api/speakers/preview/${videoId}/${encodeURIComponent(tag)}?t=${Date.now()}`;
             const res = await fetch(url);
@@ -1215,7 +1229,7 @@ function createVoicePreviewControl(videoId, tag, startSec) {
             audioEl.src = objUrl;
             audioEl.dataset.loaded = "1";
             audioEl.style.display = "block";
-            btnPlay.textContent = `🔁 Ouvir Novamente${tsLabel}`;
+            btnPlay.textContent = `Ouvir de novo${tsLabel}`;
             await audioEl.play().catch(() => {});
         } catch (e) {
             alert("Não foi possível carregar o áudio deste trecho: " + e.message);
@@ -1249,16 +1263,16 @@ function renderSpeakers(videoId, data, knownFriends = []) {
     hostCard.className = "speaker-card";
     hostCard.innerHTML = `
         <div class="speaker-header">
-            <span class="speaker-tag">[${escapeHtml(hostName)}]</span>
-            <span class="status-badge status-completed">Microfone Isolado (100%)</span>
+            <span class="speaker-tag">${escapeHtml(hostName)}</span>
+            <span class="status-badge status-completed">Você (microfone)</span>
         </div>
-        <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">Identificado pela energia diferencial da Faixa 2 do OBS. Ouça ou salve amostras .WAV manualmente quando desejar:</p>
+        <p class="speaker-note">Reconhecido pela faixa do seu microfone no OBS. Salvar amostras ajuda quando a gravação tem uma faixa só.</p>
     `;
     hostCard.appendChild(createVoicePreviewControl(videoId, hostName, null));
     const btnHost = document.createElement("button");
     btnHost.className = "btn-secondary";
     btnHost.style.width = "100%";
-    btnHost.textContent = `💾 Salvar Amostras .WAV de ${hostName}`;
+    btnHost.textContent = `Salvar amostras da voz de ${hostName}`;
     btnHost.addEventListener("click", () => harvestHostSamples(videoId, btnHost));
     hostCard.appendChild(btnHost);
     grid.appendChild(hostCard);
@@ -1284,13 +1298,13 @@ function renderSpeakers(videoId, data, knownFriends = []) {
                     ? deduced.split(/[\(—:]/)[0].trim()
                     : ""));
 
-        let badgeHtml = `<span style="font-size: 11px; color: var(--text-secondary);">Não identificado</span>`;
+        let badgeHtml = `<span class="speaker-suggestion">Ainda sem nome</span>`;
         if (confirmedManually && confirmedName) {
-            badgeHtml = `<span class="status-badge status-completed">✅ Confirmado: ${escapeHtml(confirmedName)}</span>`;
+            badgeHtml = `<span class="status-badge status-completed">Confirmado: ${escapeHtml(confirmedName)}</span>`;
         } else if (isKnown) {
-            badgeHtml = `<span class="status-badge status-completed">✅ Reconhecido (${Math.round((info.avg_confidence || 0.7) * 100)}%)</span>`;
+            badgeHtml = `<span class="status-badge status-completed">Reconhecido (confiança ${Math.round((info.avg_confidence || 0.7) * 100)}%)</span>`;
         } else if (deduced) {
-            badgeHtml = `<span style="font-size: 11px; color: var(--accent-gold);">💡 IA sugeriu: ${escapeHtml(deduced)}</span>`;
+            badgeHtml = `<span class="speaker-suggestion">A IA acha que é: ${escapeHtml(deduced)}</span>`;
         }
 
         const segInfo = info.segment_count ? ` (${info.segment_count} falas)` : "";
@@ -1302,12 +1316,10 @@ function renderSpeakers(videoId, data, knownFriends = []) {
         card.className = "speaker-card";
         card.innerHTML = `
             <div class="speaker-header">
-                <span class="speaker-tag">[${escapeHtml(displayTag)}]${escapeHtml(segInfo)}</span>
+                <span class="speaker-tag">${escapeHtml(displayTag.replace(/^Voz_(\d+)/, "Voz $1"))}<span class="speaker-count">${escapeHtml(segInfo)}</span></span>
                 ${badgeHtml}
             </div>
-            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                Trecho: "<em>${escapeHtml((info.text || "").slice(0, 75))}...</em>"
-            </p>
+            <p class="speaker-quote">“${escapeHtml((info.text || "").slice(0, 90))}${(info.text || "").length > 90 ? "..." : ""}”</p>
         `;
 
         card.appendChild(createVoicePreviewControl(videoId, tag, info.start));
@@ -1322,8 +1334,8 @@ function renderSpeakers(videoId, data, knownFriends = []) {
         btn.className = "btn-secondary";
         btn.style.width = "100%";
         btn.textContent = isKnown
-            ? "➕ Reforçar / Salvar Mais Amostras .WAV"
-            : "💾 Confirmar & Salvar Amostras .WAV";
+            ? "Salvar mais amostras desta voz"
+            : "Confirmar nome";
         btn.addEventListener("click", () => confirmSpeakerName(videoId, tag, input, btn));
 
         card.appendChild(input);
@@ -1337,13 +1349,13 @@ async function harvestHostSamples(videoId, btnEl) {
     try {
         if (btnEl) {
             btnEl.disabled = true;
-            btnEl.textContent = `⏳ Salvando amostras de ${hostName}...`;
+            btnEl.textContent = `Salvando amostras de ${hostName}...`;
         }
         const res = await fetch(`/api/speakers/harvest-host/${videoId}`, { method: "POST" });
         const d = await res.json();
         if (d.success) {
             const countSaved = (d.harvest && d.harvest.samples_saved) ? d.harvest.samples_saved.length : 0;
-            alert(`✅ ${countSaved} amostra(s) .WAV de ${hostName} salvas em vozes_amigos/${hostName}/!`);
+            alert(`${countSaved} amostra(s) da voz de ${hostName} salvas.`);
         } else {
             alert(`Erro ao salvar amostras de ${hostName}: ` + (d.detail || "Falha desconhecida"));
         }
@@ -1352,7 +1364,7 @@ async function harvestHostSamples(videoId, btnEl) {
     } finally {
         if (btnEl) {
             btnEl.disabled = false;
-            btnEl.textContent = `💾 Salvar Amostras .WAV de ${hostName}`;
+            btnEl.textContent = `Salvar amostras da voz de ${hostName}`;
         }
     }
 }
@@ -1372,7 +1384,7 @@ async function embedChaptersIntoMkv() {
     try {
         if (btn) {
             btn.disabled = true;
-            btn.textContent = "⏳ Embutindo capítulos no MKV (Lossless)...";
+            btn.textContent = "Gravando capítulos...";
         }
         const res = await fetch(`/api/embed-chapters/${activeVideoId}`, {
             method: "POST",
@@ -1381,7 +1393,7 @@ async function embedChaptersIntoMkv() {
         });
         const d = await res.json();
         if (res.ok && d.success) {
-            alert(`✅ ${d.chapters_count} capítulo(s) embutidos com sucesso no MKV original!\n\nArquivo: ${d.filename}\nMétodo: ${d.method}`);
+            alert(`${d.chapters_count} capítulo(s) gravados no arquivo.\n\nArquivo: ${d.filename}\nMétodo: ${d.method}`);
         } else {
             alert("Erro ao embutir capítulos: " + (d.detail || d.error || "Falha desconhecida"));
         }
@@ -1405,7 +1417,7 @@ async function confirmSpeakerName(videoId, tag, inputEl, btnEl) {
     try {
         if (btnEl) {
             btnEl.disabled = true;
-            btnEl.textContent = "⏳ Salvando amostras .WAV...";
+            btnEl.textContent = "Salvando...";
         }
         const res = await fetch("/api/speakers/confirm", {
             method: "POST",
@@ -1419,7 +1431,7 @@ async function confirmSpeakerName(videoId, tag, inputEl, btnEl) {
         const d = await res.json();
         if (d.success) {
             const countSaved = (d.harvest && d.harvest.samples_saved) ? d.harvest.samples_saved.length : 0;
-            alert(`Voz de [${d.friend_name || name}] confirmada! ${d.updated_segments || 0} falas atualizadas no .SRT e ${countSaved} amostra(s) .WAV salvas no Banco de Vozes.`);
+            alert(`Pronto: ${d.updated_segments || 0} falas agora aparecem como ${d.friend_name || name} na legenda, e ${countSaved} amostra(s) da voz foram salvas para reconhecer nas próximas gravações.`);
             fetchVideoDetails(videoId, true);
         } else {
             alert("Erro ao confirmar voz: " + (d.detail || "Falha desconhecida"));
@@ -1429,7 +1441,7 @@ async function confirmSpeakerName(videoId, tag, inputEl, btnEl) {
     } finally {
         if (btnEl) {
             btnEl.disabled = false;
-            btnEl.textContent = "💾 Confirmar & Salvar Amostras .WAV";
+            btnEl.textContent = "Confirmar nome";
         }
     }
 }
@@ -1461,7 +1473,7 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
             <div>
                 <div class="highlight-header">
                     <span class="hl-range-label" style="font-size: 12px; font-weight: 700; color: var(--accent);"></span>
-                    <span class="score-badge">🔥 Hype: ${escapeHtml(String(h.score ?? 85))}/100</span>
+                    <span class="score-badge" title="Nota da IA para o quanto o trecho é engraçado ou agitado">Nota ${escapeHtml(String(h.score ?? 85))}</span>
                 </div>
                 <div class="highlight-title">${escapeHtml(clipTitle)}</div>
                 <div class="highlight-reason">${escapeHtml(h.reason || "")}</div>
@@ -1471,7 +1483,7 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
         const rangeEl = card.querySelector(".hl-range-label");
         const updateRangeLabel = () => {
             const durS = Math.max(1, Math.round(endSec - startSec));
-            rangeEl.textContent = `${formatSecondsToHHMMSS(startSec)} ➔ ${formatSecondsToHHMMSS(endSec)} (${durS}s)`;
+            rangeEl.textContent = `${formatSecondsToHHMMSS(startSec)} até ${formatSecondsToHHMMSS(endSec)} (${durS}s)`;
         };
         updateRangeLabel();
 
@@ -1521,7 +1533,7 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
         btnPrev.className = "btn-secondary btn-sm";
         btnPrev.style.width = "100%";
         btnPrev.style.marginBottom = "5px";
-        btnPrev.textContent = "🔊 Ouvir Prévia do Momento (até 30s)";
+        btnPrev.textContent = "Ouvir prévia";
 
         const audioPrev = document.createElement("audio");
         audioPrev.controls = true;
@@ -1539,7 +1551,7 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
             }
             const orig = btnPrev.textContent;
             btnPrev.disabled = true;
-            btnPrev.textContent = "⏳ Extraindo prévia de áudio...";
+            btnPrev.textContent = "Carregando prévia...";
             try {
                 const url = `/api/audio/preview/${videoId}?start=${startSec.toFixed(1)}&end=${endSec.toFixed(1)}&t=${Date.now()}`;
                 const res = await fetch(url);
@@ -1553,7 +1565,7 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
                 audioPrev.src = objUrl;
                 audioPrev.dataset.loadedKey = key;
                 audioPrev.style.display = "block";
-                btnPrev.textContent = "🔁 Ouvir Prévia Novamente";
+                btnPrev.textContent = "Ouvir de novo";
                 await audioPrev.play().catch(() => {});
             } catch (e) {
                 alert("Não foi possível carregar prévia do momento: " + e.message);
@@ -1568,7 +1580,7 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
 
         const btn = document.createElement("button");
         btn.className = "btn-cut";
-        btn.textContent = "✂️ Exportar Corte 4K 60fps Lossless (2s)";
+        btn.textContent = "Exportar corte";
         btn.addEventListener("click", () => cutHighlight(btn, videoId, startSec, endSec, clipTitle));
         card.appendChild(btn);
 
@@ -1594,7 +1606,7 @@ async function exportManualCut() {
     try {
         if (btn) {
             btn.disabled = true;
-            btn.textContent = "⏳ Cortando 4K...";
+            btn.textContent = "Exportando...";
         }
         const keepAllTracks = Boolean(document.getElementById("chk-keep-all-tracks")?.checked);
         const exactCut = Boolean(document.getElementById("chk-exact-cut")?.checked);
@@ -1615,7 +1627,7 @@ async function exportManualCut() {
         if (data.success) {
             const clipsDir = studioConfig.clips_dir || "Cortes";
             const savedTarget = data.clip_path || `${clipsDir}/${data.filename}`;
-            alert(`Corte Manual 4K gerado com sucesso!\nSalvo em: ${savedTarget}`);
+            alert(`Corte exportado.\nSalvo em: ${savedTarget}`);
         } else {
             alert("Erro ao gerar corte manual: " + (data.detail || data.error || "Desconhecido"));
         }
@@ -1631,7 +1643,7 @@ async function exportManualCut() {
 
 async function cutHighlight(btn, videoId, startSec, endSec, title) {
     try {
-        btn.innerText = "⏳ Cortando em 4K...";
+        btn.innerText = "Exportando...";
         btn.disabled = true;
 
         const keepAllTracks = Boolean(document.getElementById("chk-keep-all-tracks")?.checked);
@@ -1653,14 +1665,14 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
         if (data.success) {
             const clipsDir = studioConfig.clips_dir || "Cortes";
             const savedTarget = data.clip_path || `${clipsDir}/${data.filename}`;
-            alert(`Corte 4K gerado com sucesso!\nSalvo em: ${savedTarget}`);
+            alert(`Corte exportado.\nSalvo em: ${savedTarget}`);
         } else {
             alert("Erro ao gerar corte: " + (data.detail || data.error || "Desconhecido"));
         }
     } catch (e) {
         alert("Erro ao cortar: " + e);
     } finally {
-        btn.innerText = "✂️ Exportar Corte 4K 60fps Lossless (2s)";
+        btn.innerText = "Exportar corte";
         btn.disabled = false;
     }
 }
@@ -1942,11 +1954,11 @@ async function loadHistoryList(autoSelectFirst = false) {
 
         pane.innerHTML = "";
         const badgeStyle = {
-            running: `<span class="status-badge status-processing">⚡ Em Execução</span>`,
-            completed: `<span class="status-badge status-completed">✅ Concluído</span>`,
-            error: `<span class="status-badge" style="background:rgba(239,68,68,0.2);color:#ef4444;">❌ Erro</span>`,
-            cancelled: `<span class="status-badge" style="background:rgba(251,191,36,0.18);color:#fbbf24;">🛑 Cancelado</span>`,
-            interrupted: `<span class="status-badge" style="background:rgba(148,163,184,0.18);color:#cbd5e1;">⚠️ Interrompido</span>`
+            running: `<span class="status-badge status-processing">Em andamento</span>`,
+            completed: `<span class="status-badge status-completed">Concluído</span>`,
+            error: `<span class="status-badge status-error">Erro</span>`,
+            cancelled: `<span class="status-badge status-warn">Cancelado</span>`,
+            interrupted: `<span class="status-badge status-unprocessed">Interrompido</span>`
         };
 
         jobs.forEach(j => {
@@ -1960,8 +1972,8 @@ async function loadHistoryList(autoSelectFirst = false) {
                 </div>
                 <div class="history-item-file" title="${escapeHtml(j.filename)}">${escapeHtml(j.filename)}</div>
                 <div class="history-item-sub">
-                    📅 ${escapeHtml(j.started_at || "")} • ⏱️ ${formatDuration(j.elapsed_sec)}<br>
-                    🤖 ${escapeHtml(j.engine)} (${escapeHtml(j.model || "padrão")})<br>
+                    ${escapeHtml(j.started_at || "")}, duração ${formatDuration(j.elapsed_sec)}<br>
+                    IA: ${escapeHtml(j.engine)} (${escapeHtml(j.model || "padrão")})<br>
                     <span style="color:${j.status === 'error' ? '#f87171' : '#94a3b8'};">
                         ${escapeHtml((j.error_detail || j.last_step || "").slice(0, 75))}
                     </span>
@@ -2026,11 +2038,11 @@ async function loadSettings(applyToActionBar = false) {
         if (data.has_google_api_key) {
             const mask = data.google_api_key_masked || "****";
             googleInput.placeholder = `Chave salva (${mask}) — digite nova para substituir`;
-            feedback.innerHTML = `<span style="color: #10b981; font-weight: 600;">✅ Chave salva e ativa (${escapeHtml(mask)})!</span> Deixe em branco para manter a atual.`;
+            feedback.innerHTML = `<span class="text-ok">Chave salva (${escapeHtml(mask)}).</span> Deixe o campo em branco para manter a atual.`;
             if (btnClearGoogle) btnClearGoogle.style.display = "inline-block";
         } else {
             googleInput.placeholder = "AIzaSy...";
-            feedback.innerHTML = `Obtenha grátis em <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> (Lê até 10 horas de sessão de uma vez).`;
+            feedback.innerHTML = `Gratuita: entre em <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a>, clique em “Get API key” e cole aqui.`;
             if (btnClearGoogle) btnClearGoogle.style.display = "none";
         }
 
@@ -2039,13 +2051,13 @@ async function loadSettings(applyToActionBar = false) {
             const mask = data.nvidia_api_key_masked || "****";
             nvidiaInput.placeholder = `Chave salva (${mask}) — digite nova para substituir`;
             if (nvidiaFeedback) {
-                nvidiaFeedback.innerHTML = `<span style="color: #10b981; font-weight: 600;">✅ Chave NVIDIA salva e ativa (${escapeHtml(mask)})!</span> Deixe em branco para manter a atual.`;
+                nvidiaFeedback.innerHTML = `<span class="text-ok">Chave salva (${escapeHtml(mask)}).</span> Deixe o campo em branco para manter a atual.`;
             }
             if (btnClearNvidia) btnClearNvidia.style.display = "inline-block";
         } else {
             nvidiaInput.placeholder = "nvapi-...";
             if (nvidiaFeedback) {
-                nvidiaFeedback.innerHTML = `Para rodar modelos abertos hospedados na nuvem da NVIDIA.`;
+                nvidiaFeedback.innerHTML = `Alternativa ao Gemini, com modelos abertos na nuvem da NVIDIA.`;
             }
             if (btnClearNvidia) btnClearNvidia.style.display = "none";
         }
@@ -2076,7 +2088,7 @@ async function testGoogleKey(showAlert = true) {
     const key = document.getElementById("input-google-key").value.trim();
     const model = document.getElementById("select-google-default-model").value;
     const feedback = document.getElementById("google-key-feedback");
-    feedback.innerHTML = `⏳ Testando conexão com a API do Google (${model})...`;
+    feedback.innerHTML = `Testando a chave no modelo ${escapeHtml(model)}...`;
 
     try {
         const res = await fetch("/api/test-google-key", {
@@ -2086,10 +2098,10 @@ async function testGoogleKey(showAlert = true) {
         });
         const data = await res.json();
         if (data.success) {
-            feedback.innerHTML = `<span style="color: #10b981; font-weight: 700;">✅ Conexão bem-sucedida com [${data.model}]! Chave válida.</span>`;
-            if (showAlert) alert(`✅ Chave do Google Gemini testada com sucesso no modelo [${data.model}]!`);
+            feedback.innerHTML = `<span class="text-ok">A chave funciona (modelo ${escapeHtml(data.model)}).</span>`;
+            if (showAlert) alert(`A chave do Google Gemini funciona (modelo ${data.model}).`);
         } else {
-            feedback.innerHTML = `<span style="color: #ef4444; font-weight: 700;">❌ Erro na API (${data.model}): ${escapeHtml(data.error)}</span>`;
+            feedback.innerHTML = `<span class="text-error">A chave não funcionou no modelo ${escapeHtml(data.model)}: ${escapeHtml(data.error)}</span>`;
             if (showAlert) alert("Erro ao testar a chave: " + data.error);
         }
     } catch (e) {
@@ -2101,7 +2113,7 @@ async function testNvidiaKey(showAlert = true) {
     const key = document.getElementById("input-nvidia-key").value.trim();
     const model = document.getElementById("select-nvidia-default-model").value;
     const feedback = document.getElementById("nvidia-key-feedback");
-    feedback.innerHTML = `⏳ Testando conexão com a API da NVIDIA (${model})...`;
+    feedback.innerHTML = `Testando a chave no modelo ${escapeHtml(model)}...`;
 
     try {
         const res = await fetch("/api/test-nvidia-key", {
@@ -2111,10 +2123,10 @@ async function testNvidiaKey(showAlert = true) {
         });
         const data = await res.json();
         if (data.success) {
-            feedback.innerHTML = `<span style="color: #10b981; font-weight: 700;">✅ Conexão bem-sucedida com [${data.model}]! Chave válida.</span>`;
-            if (showAlert) alert(`✅ Chave da NVIDIA NIM testada com sucesso no modelo [${data.model}]!`);
+            feedback.innerHTML = `<span class="text-ok">A chave funciona (modelo ${escapeHtml(data.model)}).</span>`;
+            if (showAlert) alert(`A chave da NVIDIA funciona (modelo ${data.model}).`);
         } else {
-            feedback.innerHTML = `<span style="color: #ef4444; font-weight: 700;">❌ Erro na API (${data.model}): ${escapeHtml(data.error)}</span>`;
+            feedback.innerHTML = `<span class="text-error">A chave não funcionou no modelo ${escapeHtml(data.model)}: ${escapeHtml(data.error)}</span>`;
             if (showAlert) alert("Erro ao testar chave NVIDIA: " + data.error);
         }
     } catch (e) {
@@ -2189,7 +2201,7 @@ async function saveSettings() {
 
 async function removeVideoAudioBackup() {
     if (!activeVideoId) return;
-    if (!confirm("Remover a faixa extra de backup do mix original deste MKV?\n\nO vídeo 4K e as demais faixas não são re-renderizados (stream copy lossless). Só faça isso depois de conferir que o áudio normalizado ficou bom.")) {
+    if (!confirm("Remover a cópia do áudio original deste vídeo?\n\nA imagem e as demais faixas não são refeitas, então a qualidade não muda. Só faça isso depois de conferir que o volume ficou bom.")) {
         return;
     }
     const btn = document.getElementById("btn-remove-audio-backup");
@@ -2197,7 +2209,7 @@ async function removeVideoAudioBackup() {
     try {
         if (btn) {
             btn.disabled = true;
-            btn.textContent = "⏳ Removendo backup...";
+            btn.textContent = "Removendo...";
         }
         const res = await fetch(`/api/audio/remove-backup/${activeVideoId}`, { method: "POST" });
         const data = await res.json().catch(() => ({}));
@@ -2206,7 +2218,7 @@ async function removeVideoAudioBackup() {
         if (btn && !data.skipped) btn.style.display = "none";
         await loadVideos(false);
     } catch (e) {
-        alert("Não foi possível remover o backup de áudio: " + e.message);
+        alert("Não foi possível remover a cópia do áudio original: " + e.message);
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -2221,7 +2233,7 @@ async function resumePausedProcessing() {
     try {
         if (btn) {
             btn.disabled = true;
-            btn.textContent = "⏳ Retomando...";
+            btn.textContent = "Retomando...";
         }
         const res = await fetch(`/api/process/${activeVideoId}/resume-override`, { method: "POST" });
         const data = await res.json().catch(() => ({}));
@@ -2232,7 +2244,7 @@ async function resumePausedProcessing() {
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.textContent = "▶️ Continuar mesmo assim";
+            btn.textContent = "Continuar mesmo assim";
         }
     }
 }

@@ -15,6 +15,7 @@ from app.database import (
 )
 from app import first_run
 from app import updater
+from app.setup_check import run_setup_check
 
 router = APIRouter()
 
@@ -36,6 +37,12 @@ def _setup_needed() -> bool:
     if get_setting(first_run.SETUP_DONE_KEY, "") == "1":
         return False
     return not (get_setting("google_api_key", "") or get_setting("nvidia_api_key", ""))
+
+
+@router.get("/api/setup/check")
+def setup_check():
+    """Diagnóstico de primeiros passos (FFmpeg, pasta do OBS, chave de IA, GPU, disco...)."""
+    return run_setup_check()
 
 
 @router.get("/api/setup")
