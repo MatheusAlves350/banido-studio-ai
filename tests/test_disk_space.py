@@ -86,3 +86,10 @@ def test_iniciar_processamento_responde_507_quando_falta_espaco(monkeypatch, tmp
         wc.launch_worker_subprocess(7, "full", "", "gemini", "", normalize_audio=True)
     assert e.value.status_code == 507
     assert "Espaço insuficiente" in e.value.detail
+
+
+def test_simulacao_de_espaco_livre_pelo_ambiente(monkeypatch, tmp_path):
+    monkeypatch.setenv("BANIDO_SIMULAR_ESPACO_LIVRE_GB", "2,5")
+    assert ds.free_bytes(tmp_path) == int(2.5 * GB)
+    monkeypatch.setenv("BANIDO_SIMULAR_ESPACO_LIVRE_GB", "abc")
+    assert ds.free_bytes(tmp_path) > 0

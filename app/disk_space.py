@@ -43,7 +43,17 @@ def _existing_ancestor(path: Path) -> Path:
 
 
 def free_bytes(path: Path) -> Optional[int]:
-    """Espaço livre (bytes) no disco onde a pasta fica; None se não foi possível medir."""
+    """Espaço livre (bytes) no disco onde a pasta fica; None se não foi possível medir.
+
+    Para testar sem encher o disco: BANIDO_SIMULAR_ESPACO_LIVRE_GB=3 faz o programa agir
+    como se houvesse só 3 GB livres (remova a linha do .env depois do teste).
+    """
+    simulated = (os.getenv("BANIDO_SIMULAR_ESPACO_LIVRE_GB") or "").strip().replace(",", ".")
+    if simulated:
+        try:
+            return int(float(simulated) * GB)
+        except ValueError:
+            pass
     try:
         return shutil.disk_usage(str(_existing_ancestor(path))).free
     except Exception:
