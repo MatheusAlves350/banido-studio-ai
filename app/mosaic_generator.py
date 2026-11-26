@@ -68,6 +68,66 @@ def _extract_single_frame(video_path: Path, ts_str: str, temp_frame: Path, width
     return res.returncode == 0 and temp_frame.exists() and temp_frame.stat().st_size > 1000
 
 
+def build_batch_command(video_path: Path, timestamps, frame_paths, width: int, height: int, use_cuda: bool = True) -> list:
+    """
+    Monta UM comando do FFmpeg que abre o arquivo uma vez e gera todos os quadros.
+
+    Cada quadro usa seu próprio "-ss" antes do "-i" (salto rápido pelo índice do MKV),
+    então o vídeo NÃO é decodificado inteiro: o resultado é o mesmo da extração
+    quadro a quadro, só com um processo em vez de 16.
+    """
+    cmd = ["ffmpeg", "-y"]
+    for ts in timestamps:
+        if use_cuda:
+            cmd.extend(["-hwaccel", "cuda"])
+        cmd.extend(["-ss", f"{ts:.2f}", "-i", str(video_path)])
+    for i, frame in enumerate(frame_paths):
+        cmd.extend([
+            "-map", f"{i}:v:0",
+            "-frames:v", "1",
+            "-vf", f"scale={width}:{height}",
+            "-q:v", "2",
+            str(frame),
+        ])
+    return cmd
+
+
+def _frame_ok(frame: Path) -> bool:
+    return frame.exists() and frame.stat().st_size > 1000
+
+
+def extract_frames(video_path: Path, timestamps, temp_dir: Path, width: int, height: int):
+    """
+    Extrai os quadros em uma única chamada do FFmpeg (CUDA, depois CPU).
+    Se a chamada única falhar, usa o método antigo, quadro a quadro.
+    Retorna (lista de caminhos válidos ou None, usou_cuda).
+    """
+    frames = [temp_dir / f"frame_{i}.jpg" for i in range(len(timestamps))]
+
+    for use_cuda in (True, False):
+        for f in frames:
+            f.unlink(missing_ok=True)
+        cmd = build_batch_command(video_path, timestamps, frames, width, height, use_cuda=use_cuda)
+        res = subprocess.run(cmd, capture_output=True, check=False)
+        if res.returncode == 0 and all(_frame_ok(f) for f in frames):
+            return list(frames), use_cuda
+
+    # Fallback: método antigo, um quadro por vez
+    cuda_ok = True
+    result = []
+    for ts, frame in zip(timestamps, frames):
+        frame.unlink(missing_ok=True)
+        ok = False
+        if cuda_ok:
+            ok = _extract_single_frame(video_path, f"{ts:.2f}", frame, width, height, use_cuda=True)
+            if not ok:
+                cuda_ok = False
+        if not ok:
+            ok = _extract_single_frame(video_path, f"{ts:.2f}", frame, width, height, use_cuda=False)
+        result.append(frame if ok else None)
+    return result, cuda_ok
+
+
 def generate_video_mosaic(video_path: Path, output_jpg_path: Path, num_cols: int = 4, num_rows: int = 4) -> bool:
     """
     Gera folha de contato 4x4 (16 cenas em 2240x1260) com aceleração NVDEC CUDA
@@ -89,21 +149,12 @@ def generate_video_mosaic(video_path: Path, output_jpg_path: Path, num_cols: int
 
         frame_images = []
         frame_width, frame_height = 560, 315
-        cuda_ok = True
+        extracted_frames, cuda_ok = extract_frames(video_path, timestamps, temp_dir, frame_width, frame_height)
 
         for i, ts in enumerate(timestamps):
-            temp_frame = temp_dir / f"frame_{i}.jpg"
-            ts_str = f"{ts:.2f}"
+            temp_frame = extracted_frames[i]
 
-            extracted = False
-            if cuda_ok:
-                extracted = _extract_single_frame(video_path, ts_str, temp_frame, frame_width, frame_height, use_cuda=True)
-                if not extracted:
-                    cuda_ok = False
-            if not extracted:
-                extracted = _extract_single_frame(video_path, ts_str, temp_frame, frame_width, frame_height, use_cuda=False)
-
-            if extracted and temp_frame.exists():
+            if temp_frame is not None and temp_frame.exists():
                 try:
                     with Image.open(temp_frame) as raw_img:
                         img = raw_img.convert("RGB")
