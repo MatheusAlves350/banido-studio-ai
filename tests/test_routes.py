@@ -66,6 +66,10 @@ ROTAS_ESPERADAS = [
     ("POST", "/api/queue/cancel", "cancel_queue"),
     ("POST", "/api/queue/start-now", "start_queue_now"),
     ("POST", "/api/queue/cancel-power", "cancel_queue_power"),
+    ("GET", "/api/obs/state", "obs_state"),
+    ("POST", "/api/obs/preview", "obs_preview"),
+    ("POST", "/api/obs/apply", "obs_apply"),
+    ("POST", "/api/obs/undo", "obs_undo"),
 ]
 
 
