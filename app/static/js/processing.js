@@ -30,6 +30,8 @@ async function startProcessing() {
         }
         if (data.already_running) {
             alert(data.message);
+        } else if (data.space_warning) {
+            alert(data.space_warning);
         }
         loadGameHistory();
         await fetchVideoDetails(activeVideoId, false);

@@ -13,8 +13,9 @@ from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
 
 from app.config import (
-    PROJECT_ROOT, OBS_RECORDINGS_DIR, LOGS_DIR, VENV_PYTHON, HOST_SPEAKER_NAME
+    PROJECT_ROOT, OBS_RECORDINGS_DIR, TEMP_DIR, LOGS_DIR, VENV_PYTHON, HOST_SPEAKER_NAME
 )
+from app.disk_space import BLOCKED as SPACE_BLOCKED, WARNING as SPACE_WARNING, check_process_space
 from app.database import (
     get_video_by_id, update_video_progress, get_setting, has_video_data, create_job_record,
     set_job_pid, finish_job_record, get_job_by_id, now_str,
@@ -306,6 +307,15 @@ def launch_worker_subprocess(
             "message": f"Este vídeo já está em processamento ativo (Job #{existing['job_id']}, PID {existing['proc'].pid})."
         }
 
+    # F8: confere o espaço em disco antes de começar (a normalização avulsa já faz a própria checagem)
+    space_warning = ""
+    if mode == "full":
+        space = check_process_space(video, bool(normalize_audio), TEMP_DIR, OBS_RECORDINGS_DIR)
+        if space["level"] == SPACE_BLOCKED:
+            raise HTTPException(status_code=507, detail=space["message"])
+        if space["level"] == SPACE_WARNING:
+            space_warning = space["message"]
+
     # Salvar imediatamente o jogo e o contexto escolhidos no vídeo e no histórico de jogos
     if mode in ("full", "ai_only") and (manual_game.strip() or extra_context.strip()):
         update_video_game_and_context(
@@ -377,5 +387,6 @@ def launch_worker_subprocess(
         "already_running": False,
         "job_id": job_id,
         "pid": proc.pid,
-        "message": f"Processamento iniciado (Job #{job_id}, PID {proc.pid})"
+        "message": f"Processamento iniciado (Job #{job_id}, PID {proc.pid})",
+        "space_warning": space_warning,
     }
