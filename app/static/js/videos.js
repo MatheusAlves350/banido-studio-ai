@@ -250,6 +250,7 @@ async function selectVideo(videoId) {
     lastRawLogText = "";
     await fetchVideoDetails(videoId, true);
     await fetchVideoLogs(videoId);
+    if (typeof refreshTokenEstimate === "function") refreshTokenEstimate();
 }
 
 async function fetchVideoLogs(videoId) {

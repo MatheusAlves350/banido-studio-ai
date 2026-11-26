@@ -219,3 +219,23 @@ def clear_cache() -> None:
             CACHE_FILE.unlink()
         except Exception:
             pass
+
+
+# Limite de contexto (tokens de entrada) por provedor. Valores aproximados e conservadores: a
+# estimativa serve de aviso, não de garantia. Quando um modelo tiver limite diferente, entra em
+# _CONTEXT_LIMIT_BY_MODEL (casamento por trecho do nome, o primeiro que combinar vale).
+DEFAULT_CONTEXT_LIMITS: Dict[str, int] = {"google": 1_000_000, "nvidia": 128_000, "manual_claude": 200_000}
+_CONTEXT_LIMIT_BY_MODEL: List[tuple] = [
+    ("gemma-3", 128_000),
+    ("gemma-4", 128_000),
+]
+
+
+def get_context_limit(provider: str, model: str = "") -> int:
+    """Limite aproximado de tokens de entrada do modelo (padrão do provedor se o modelo não for conhecido)."""
+    low = (model or "").lower()
+    for fragment, limit in _CONTEXT_LIMIT_BY_MODEL:
+        if fragment in low:
+            return limit
+    prov = normalize_provider(provider) or provider
+    return DEFAULT_CONTEXT_LIMITS.get(prov, DEFAULT_CONTEXT_LIMITS["nvidia"])

@@ -39,6 +39,7 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/speakers/preview/{video_id}/{speaker_tag:path}", "preview_speaker_audio"),
     ("POST", "/api/speakers/confirm", "confirm_speaker"),
     ("POST", "/api/speakers/harvest-host/{video_id}", "harvest_host_samples"),
+    ("GET", "/api/ai/estimate/{video_id}", "estimate_ai_tokens"),
     ("GET", "/api/claude-prompt/{video_id}", "get_claude_prompt"),
     ("POST", "/api/claude-import/{video_id}", "import_claude_response"),
     ("GET", "/api/settings", "get_settings"),

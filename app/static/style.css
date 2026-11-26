@@ -800,3 +800,9 @@ button:disabled { cursor: default; opacity: 0.5; }
     .history-modal-body { grid-template-columns: 1fr; }
     .history-list-pane { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line-soft); }
 }
+
+/* Estimativa de tokens (B10): cores semânticas, sem decoração */
+.token-estimate { display: block; margin-top: 6px; }
+.token-estimate.token-ok { color: #2f7d4f; }
+.token-estimate.token-atencao { color: #a56a00; }
+.token-estimate.token-estoura { color: #b3261e; font-weight: 600; }
