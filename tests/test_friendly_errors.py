@@ -1,4 +1,6 @@
 """Erros em linguagem simples (item E6): cada erro conhecido gera a mensagem esperada e o original é mantido."""
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -79,13 +81,14 @@ def test_friendly_text_junta_o_que_houve_e_o_que_fazer():
 def test_detalhes_do_video_com_erro_trazem_a_explicacao(tmp_path):
     from app.database import get_connection
     client = TestClient(app, headers={"X-Banido-Token": API_AUTH_TOKEN})
+    nome = f"e6_{uuid.uuid4().hex[:8]}.mkv"  # nome novo a cada execução: o banco de teste persiste
     conn = get_connection()
     conn.execute(
-        "INSERT INTO videos (filename, file_path, status) VALUES ('e6_teste.mkv', ?, 'unprocessed')",
-        (str(tmp_path / "e6_teste.mkv"),),
+        "INSERT INTO videos (filename, file_path, status) VALUES (?, ?, 'unprocessed')",
+        (nome, str(tmp_path / nome)),
     )
     conn.commit()
-    vid = conn.execute("SELECT id FROM videos WHERE filename='e6_teste.mkv'").fetchone()[0]
+    vid = conn.execute("SELECT id FROM videos WHERE filename=?", (nome,)).fetchone()[0]
     conn.close()
     update_video_progress(vid, "Erro: CUDA out of memory", 0.0, "error")
     data = client.get(f"/api/video/{vid}?include_data=false").json()
