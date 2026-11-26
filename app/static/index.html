@@ -154,12 +154,14 @@
                                     <select id="select-engine">
                                         <option value="gemini">Google Gemini (recomendado, tem plano gratuito)</option>
                                         <option value="nvidia">NVIDIA NIM</option>
+                                        <option value="ollama">IA local com Ollama (opcional, sem nuvem)</option>
                                         <option value="manual_claude">Claude Web (copiar e colar, sem chave)</option>
                                     </select>
                                 </div>
                                 <div class="field">
                                     <label for="select-active-model" class="field-label">Modelo</label>
                                     <select id="select-active-model"></select>
+                                    <span id="ollama-status" class="field-hint" role="status"></span>
                                     <span id="ai-token-estimate" class="field-hint token-estimate" role="status"></span>
                                 </div>
                                 <div class="field">

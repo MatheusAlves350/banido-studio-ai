@@ -45,6 +45,7 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/mosaics/{video_id}", "list_video_mosaics"),
     ("GET", "/api/thumbnails/{video_id}", "get_thumbnails"),
     ("POST", "/api/thumbnails/{video_id}", "suggest_thumbnails"),
+    ("GET", "/api/ollama/status", "get_ollama_status"),
     ("GET", "/api/claude-prompt/{video_id}", "get_claude_prompt"),
     ("POST", "/api/claude-import/{video_id}", "import_claude_response"),
     ("GET", "/api/settings", "get_settings"),

@@ -177,6 +177,13 @@ def suggest_thumbnails(video_id: int, req: ThumbnailRequest):
     return {"frames": frames, "texts": texts, "note": note}
 
 
+@router.get("/api/ollama/status")
+def get_ollama_status():
+    """O Ollama (IA local) está aberto e quais modelos já foram baixados (B11)."""
+    from app.ai.ollama import ollama_status
+    return ollama_status()
+
+
 @router.get("/api/claude-prompt/{video_id}")
 def get_claude_prompt(video_id: int):
     video = get_video_by_id(video_id)

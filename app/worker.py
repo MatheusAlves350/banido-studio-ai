@@ -30,6 +30,7 @@ from app.extra_mosaics import ensure_extra_mosaics
 from app.ai.validator import probe_video_format
 from app.ai.highlight_check import check_highlights
 from app.ai.ranking import rank_highlights
+from app.ai.ollama import OllamaProvider
 from app.transcriber_v3 import run_transcription_pipeline
 from app.voice_bank import list_known_voice_names
 from app.ai_director import (
@@ -461,11 +462,25 @@ def run_worker(
                     if mode == "ai_only":
                         raise RuntimeError(err_txt)
                     ai_data["ai_warning"] = err_txt
+        elif engine == "ollama":
+            ollama_model = custom_model or get_setting("ollama_model", "")
+            try:
+                ai_res = OllamaProvider(ollama_model).analyze(
+                    transcript_for_ai, duration_sec=duration_sec, progress_callback=report
+                )
+                ai_data.update(ai_res)
+                ai_data["ai_warning"] = ""
+            except Exception as ai_err:
+                err_txt = f"Falha na etapa da IA local Ollama ({ollama_model or 'sem modelo'}): {ai_err}"
+                print(f"[AVISO IA] {err_txt}", flush=True)
+                if mode == "ai_only":
+                    raise RuntimeError(err_txt)
+                ai_data["ai_warning"] = err_txt
         else:
             print("[IA CLAUDE WEB] Pacote de prompt preparado para cópia manual no Claude Web!", flush=True)
 
         # Confere os destaques contra a fala: encaixa início/fim em frases e descarta trechos sem fala (B2)
-        if engine in ("gemini", "nvidia") and ai_data.get("highlights"):
+        if engine in ("gemini", "nvidia", "ollama") and ai_data.get("highlights"):
             for line in check_highlights(ai_data, duration_sec) + rank_highlights(ai_data):
                 print(line, flush=True)
 
