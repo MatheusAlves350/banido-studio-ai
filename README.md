@@ -255,7 +255,7 @@ Regras de segurança:
 │   ├── lossless_media.py     # Normalização YouTube Gold, cortes e capítulos MKV
 │   ├── updater.py            # Verificação e aplicação de atualizações via GitHub (git)
 │   ├── obs_fixer.py          # Utilitário opcional de roteamento multi-track no OBS
-│   └── static/               # Interface Web (index.html, app.js, style.css)
+│   └── static/               # Interface Web (index.html, js/*.js, style.css)
 ├── docs/
 │   └── ARCHITECTURE.md       # Detalhes técnicos da arquitetura
 ├── tests/
