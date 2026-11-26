@@ -50,6 +50,7 @@ from app.voice_bank import (
 )
 from app import updater
 from app import first_run
+from app.setup_check import run_setup_check
 
 # Mapa em memória dos processos worker ativos:
 # video_id -> {"proc": Popen, "job_id": int, "mode": str, "boot_log": Path, "boot_fh": file}
@@ -333,7 +334,7 @@ async def csrf_and_token_guard(request: Request, call_next):
     method = request.method.upper()
     needs_token = (
         (path.startswith("/api/") and method in ("POST", "PUT", "PATCH", "DELETE"))
-        or (path == "/api/settings" and method == "GET")
+        or (path in ("/api/settings", "/api/setup/check") and method == "GET")
         or (path.startswith("/api/models/") and method == "GET")
         # GETs que executam FFmpeg/rede ou gravam/expõem logs locais: também exigem o token
         or (path.startswith(("/api/audio/preview/", "/api/speakers/preview/", "/api/update/", "/api/diagnostics/")) and method == "GET")
@@ -468,6 +469,12 @@ def server_status():
             "gpu": PC_SPECS.get("gpu", ""),
         }
     }
+
+
+@app.get("/api/setup/check")
+def setup_check():
+    """Diagnóstico de primeiros passos (FFmpeg, pasta do OBS, chave de IA, GPU, disco...)."""
+    return run_setup_check()
 
 
 @app.get("/api/videos")
