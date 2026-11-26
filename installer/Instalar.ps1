@@ -244,6 +244,19 @@ function EscolherPastaPrograma($discos) {
     return $opcoes[$padrao - 1].Pasta
 }
 
+# A pasta do programa nao pode ser a pasta do ZIP (fonte) nem ficar dentro dela: a copia seria pulada e nada seria instalado.
+# Pasta PAI da fonte e permitida (e o caso do instalador .exe, que descompacta em {app}\fonte).
+function ProblemaPastaPrograma([string]$dir) {
+    try {
+        $a = [IO.Path]::GetFullPath($dir).TrimEnd('\')
+        $f = [IO.Path]::GetFullPath($FonteDir).TrimEnd('\')
+    } catch { return "Caminho invalido: $dir" }
+    if (($a -ieq $f) -or ($a.StartsWith($f + '\', [StringComparison]::OrdinalIgnoreCase))) {
+        return "Esta pasta ($a) e a pasta do ZIP baixado. Escolha outro disco ou pasta para instalar o programa."
+    }
+    return $null
+}
+
 function LerEnv([string]$arq, [string]$chave) {
     if (-not (Test-Path $arq)) { return $null }
     foreach ($l in (Get-Content $arq)) {
@@ -274,9 +287,20 @@ try {
     # ------------------------------------------------------------------ 0a. onde instalar o programa
     if (-not $InstallDirExplicito) {
         $discosProg = @(DiscosFixos | Sort-Object FreeSpace -Descending)
-        $escolhaProg = EscolherPastaPrograma $discosProg
-        if (-not [IO.Path]::IsPathRooted($escolhaProg)) { throw "Informe um caminho completo (ex.: E:\BanidoStudio). Recebi: $escolhaProg" }
+        $escolhaProg = $null
+        for ($t = 1; $t -le 3; $t++) {
+            $cand = EscolherPastaPrograma $discosProg
+            if (-not [IO.Path]::IsPathRooted($cand)) { Write-Host "    Informe um caminho completo (ex.: E:\BanidoStudio). Recebi: $cand" -ForegroundColor Yellow; continue }
+            $problema = ProblemaPastaPrograma $cand
+            if ($problema) { Write-Host "    $problema" -ForegroundColor Yellow; continue }
+            $escolhaProg = $cand
+            break
+        }
+        if (-not $escolhaProg) { throw 'Nenhuma pasta valida foi escolhida. Rode o instalador de novo e escolha outro disco ou pasta (nunca a pasta do ZIP).' }
         DefinirCaminhos $escolhaProg
+    } else {
+        $problema = ProblemaPastaPrograma $InstallDir
+        if ($problema) { throw $problema }
     }
     New-Item -ItemType Directory -Force -Path $InstallDir, $CacheDir, $ToolsDir | Out-Null
     try { Start-Transcript -Path (Join-Path $InstallDir 'instalacao.log') -Append | Out-Null } catch {}
@@ -305,6 +329,7 @@ try {
     }
 
     # ------------------------------------------------------------------ 1b. pasta de dados (antes dos downloads grandes)
+    if (-not (Test-Path (Join-Path $CodigoDir 'app\main.py'))) { throw "O programa nao foi copiado para $CodigoDir. Rode de novo e escolha uma pasta diferente da pasta do ZIP." }
     $envFile = Join-Path $CodigoDir '.env'
     if (-not (Test-Path $envFile) -and (Test-Path (Join-Path $CodigoDir '.env.example'))) {
         Copy-Item (Join-Path $CodigoDir '.env.example') $envFile

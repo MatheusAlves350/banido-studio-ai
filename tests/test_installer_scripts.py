@@ -23,5 +23,6 @@ def test_instalador_so_pergunta_o_local_quando_nao_recebe_install_dir():
     ps1 = (RAIZ / "installer" / "Instalar.ps1").read_text(encoding="ascii")
     assert "ContainsKey('InstallDir')" in ps1
     assert "if (-not $InstallDirExplicito)" in ps1
+    assert "function ProblemaPastaPrograma" in ps1 and "ProblemaPastaPrograma $cand" in ps1
     sem_perguntas = (RAIZ / "installer" / "InstalarSemPerguntas.ps1").read_text(encoding="ascii")
     assert "InstallDir = $InstallDir" in sem_perguntas
