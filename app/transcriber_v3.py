@@ -12,31 +12,8 @@ O código foi dividido em app/transcription/ (issue #14):
 
 Este arquivo reexporta os mesmos nomes de antes, para que worker.py, routers e os testes não mudem.
 """
-import os
-import re
-import gc
-import difflib
-import json
-import time
-import shutil
-import subprocess
-import numpy as np
-import soundfile as sf
-from pathlib import Path
-from typing import List, Dict, Any, Callable, Optional, Tuple
-from app.config import (
-    MODELS_DIR, HOST_SPEAKER_NAME,
-    WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, WHISPER_LANGUAGE,
-    SEPARATE_TRACK_TRANSCRIPTION
-)
-from app.audio_pipeline import (
-    is_host_speaking, extract_audio_tracks, analyze_audio_dynamics,
-    compute_rms_100ms,
-    build_balanced_mix_array, SegmentedAudioExtractor, analyze_segmented_hype
-)
-from app.voice_bank import load_known_voice_profiles, cluster_and_identify_speakers, list_known_voice_names
 
-
+from app.config import HOST_SPEAKER_NAME  # noqa: F401 (usado pelos testes)
 from app.transcription.hallucination import (  # noqa: F401
     WHISPER_AVG_LOGPROB_LIMIT,
     WHISPER_COMPRESSION_RATIO_LIMIT,
@@ -82,3 +59,31 @@ from app.transcription.pipeline import (  # noqa: F401
     _transcribe_block,
     run_transcription_pipeline,
 )
+
+__all__ = [
+    "HOST_SPEAKER_NAME",
+    "WHISPER_COMPRESSION_RATIO_LIMIT",
+    "WHISPER_HALLUCINATION_PHRASES",
+    "WHISPER_HALLUCINATION_SILENCE_THRESHOLD",
+    "WHISPER_HALLUCINATION_SUBSTRINGS",
+    "WHISPER_NO_SPEECH_PROB_LIMIT",
+    "_find_tail_silence_split",
+    "_is_whisper_hallucination",
+    "_log_memory_status",
+    "_mic_segment_is_real",
+    "_normalize_for_hallucination",
+    "_refine_whisper_segment",
+    "_register_cuda_dll_dirs",
+    "_rms_slice",
+    "_time_overlap",
+    "_track_has_speech",
+    "_transcribe_block",
+    "_whisper_model",
+    "create_balanced_mix_audio",
+    "format_hhmmss",
+    "get_whisper_model",
+    "merge_track_segments",
+    "release_whisper_model",
+    "run_transcription_pipeline",
+    "seconds_to_srt_time",
+]
