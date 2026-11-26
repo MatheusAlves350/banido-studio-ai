@@ -590,6 +590,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="")
     parser.add_argument("--normalize-audio", action="store_true", default=False)
     parser.add_argument("--separate-tracks", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--no-notify", action="store_true", default=False)
     args = parser.parse_args()
 
     from app.keep_awake import stay_awake
@@ -611,5 +612,5 @@ if __name__ == "__main__":
             )
         finally:
             # Só jobs longos avisam; reanálise de IA e ajuste de volume de um vídeo o usuário acompanha na tela.
-            if args.mode in ("full", "normalize_batch"):
+            if args.mode in ("full", "normalize_batch") and not args.no_notify:
                 notify_job_end(args.job_id, wait=True)

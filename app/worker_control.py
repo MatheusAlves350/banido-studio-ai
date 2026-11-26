@@ -289,6 +289,7 @@ def launch_worker_subprocess(
     extra_context: str = "",
     normalize_audio: bool = False,
     separate_tracks: Optional[bool] = None,
+    notify_end: bool = True,
 ) -> Dict[str, Any]:
     reconcile_worker_processes()
     if 0 in ACTIVE_PROCESSES:
@@ -362,6 +363,8 @@ def launch_worker_subprocess(
         cmd.append("--normalize-audio")
     if mode == "full" and separate_tracks is not None:
         cmd.append("--separate-tracks" if separate_tracks else "--no-separate-tracks")
+    if not notify_end:
+        cmd.append("--no-notify")  # a fila manda um aviso só, no fim de tudo
 
     # Capturar stderr de inicialização (ex: ImportError / DLL CUDA) para nunca falhar silenciosamente
     boot_log = LOGS_DIR / f"job_{job_id}_boot.log"

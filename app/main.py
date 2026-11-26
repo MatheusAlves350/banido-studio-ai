@@ -21,9 +21,10 @@ from app.worker_control import (
     _cleanup_boot_log,
     kill_process_tree,
 )
+from app import queue_manager
 from app import updater  # noqa: F401 (testes acessam app.main.updater)
 from app.routers import (
-    videos, processing, media, voices, ai, settings, setup, update, diagnostics, notify
+    videos, processing, media, voices, ai, settings, setup, update, diagnostics, notify, queue
 )
 
 
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
             print(f"[SEGURANÇA] {security.NO_PASSWORD_MESSAGE}", flush=True)
     AUDIO_NORM_CHECK_CACHE.clear()
     sync_obs_videos(OBS_RECORDINGS_DIR)
+    queue_manager.start_scheduler()
     yield
     # No encerramento do servidor, mata workers ativos para não deixar processos zumbis
     for vid, info in list(ACTIVE_PROCESSES.items()):
@@ -154,7 +156,7 @@ def get_index():
 
 
 # As rotas da API ficam em app/routers/. A ordem abaixo é a mesma de antes da separação.
-for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, notify):
+for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, notify, queue):
     app.include_router(_modulo.router)
 
 
