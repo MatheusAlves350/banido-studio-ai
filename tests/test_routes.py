@@ -36,6 +36,8 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/audio/preview/{video_id}", "preview_highlight_audio"),
     ("POST", "/api/cut", "cut_highlight"),
     ("POST", "/api/embed-chapters/{video_id}", "embed_chapters"),
+    ("GET", "/api/chapters/text/{video_id}", "get_chapters_text"),
+    ("POST", "/api/chapters/export/{video_id}", "export_chapters_txt"),
     ("GET", "/api/speakers/preview/{video_id}/{speaker_tag:path}", "preview_speaker_audio"),
     ("POST", "/api/speakers/confirm", "confirm_speaker"),
     ("POST", "/api/speakers/harvest-host/{video_id}", "harvest_host_samples"),
