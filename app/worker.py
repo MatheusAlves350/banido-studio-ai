@@ -26,6 +26,7 @@ from app.lossless_media import (
     finalize_normalized_mkv,
 )
 from app.mosaic_generator import generate_video_mosaic
+from app.extra_mosaics import ensure_extra_mosaics
 from app.ai.validator import probe_video_format
 from app.ai.highlight_check import check_highlights
 from app.ai.ranking import rank_highlights
@@ -404,6 +405,13 @@ def run_worker(
 
         report(f"Etapa Final: Consultando Diretor Criativo de IA ({engine})...", 0.92)
 
+        # Mosaicos adicionais (por hora e em mudanças de cena) para sessões longas (B8); nunca derrubam o processo
+        extra_mosaics = []
+        if engine in ("gemini", "manual_claude") and mosaic_jpg.exists():
+            extra_mosaics = ensure_extra_mosaics(mkv_path, mosaic_jpg.parent, video_id, duration_sec)
+            if extra_mosaics:
+                print(f"[MOSAICO] {len(extra_mosaics)} mosaico(s) adicional(is): {', '.join(p.name for p in extra_mosaics)}", flush=True)
+
         google_key = get_setting("google_api_key", "")
         nvidia_key = get_setting("nvidia_api_key", "")
         google_model = custom_model or get_setting("google_model", DEFAULT_GOOGLE_MODEL)
@@ -421,7 +429,8 @@ def run_worker(
                         mosaic_jpg_path=mosaic_jpg,
                         model_name=google_model,
                         duration_sec=duration_sec,
-                        progress_callback=report
+                        progress_callback=report,
+                        extra_mosaic_paths=extra_mosaics
                     )
                     ai_data.update(ai_res)
                     ai_data["ai_warning"] = ""
