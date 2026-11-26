@@ -813,6 +813,8 @@ button:disabled { cursor: default; opacity: 0.5; }
 .job-end-banner button { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; }
 
 /* ---------- Fila de vídeos (E3) ---------- */
+/* Botões escondidos pelo atributo hidden (as classes de botão trocam o display) */
+button[hidden] { display: none !important; }
 .fila-card { max-width: 640px; }
 .fila-card .modal-body { max-height: 72vh; overflow-y: auto; }
 .fila-card h4 { margin: 18px 0 8px; font-size: 14px; }
