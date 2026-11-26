@@ -56,8 +56,11 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/update/progress", "update_progress"),
     ("POST", "/api/update/restart", "update_restart"),
     ("GET", "/api/diagnostics/report", "get_diagnostic_report"),
+    ("GET", "/api/env-settings", "get_env_settings"),
+    ("POST", "/api/env-settings/pick-folder", "env_settings_pick_folder"),
+    ("POST", "/api/env-settings", "save_env_settings"),
     ("GET", "/api/glossary", "get_glossary"),
-    ("POST", "/api/glossary", "update_glossary")
+    ("POST", "/api/glossary", "update_glossary"),
 ]
 
 
