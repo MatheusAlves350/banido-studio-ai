@@ -28,6 +28,7 @@ from app.lossless_media import (
 from app.mosaic_generator import generate_video_mosaic
 from app.ai.validator import probe_video_format
 from app.ai.highlight_check import check_highlights
+from app.ai.ranking import rank_highlights
 from app.transcriber_v3 import run_transcription_pipeline
 from app.voice_bank import list_known_voice_names
 from app.ai_director import (
@@ -456,7 +457,7 @@ def run_worker(
 
         # Confere os destaques contra a fala: encaixa início/fim em frases e descarta trechos sem fala (B2)
         if engine in ("gemini", "nvidia") and ai_data.get("highlights"):
-            for line in check_highlights(ai_data, duration_sec):
+            for line in check_highlights(ai_data, duration_sec) + rank_highlights(ai_data):
                 print(line, flush=True)
 
         # Refaz descrição e tags já com a resolução/fps confirmados pelo ffprobe (tag "4K 60fps" só vale se confirmada)
