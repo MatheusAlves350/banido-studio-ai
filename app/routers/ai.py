@@ -113,6 +113,70 @@ def list_video_mosaics(video_id: int):
     return {"files": files}
 
 
+class ThumbnailRequest(BaseModel):
+    engine: str = ""   # "gemini" ou "nvidia" para sugerir os textos; vazio = só os quadros
+    model: str = ""
+
+
+@router.get("/api/thumbnails/{video_id}")
+def get_thumbnails(video_id: int):
+    """Última sugestão de miniaturas salva para o vídeo (B6)."""
+    video = get_video_by_id(video_id)
+    if not video or "data" not in video:
+        raise HTTPException(status_code=404, detail="Dados de transcrição não encontrados")
+    return video["data"].get("thumbnails") or {"frames": [], "texts": []}
+
+
+@router.post("/api/thumbnails/{video_id}")
+def suggest_thumbnails(video_id: int, req: ThumbnailRequest):
+    """Escolhe 3 a 5 quadros nítidos nos picos de hype (1280x720) e sugere 2 textos curtos (B6)."""
+    from pathlib import Path
+    from app.config import DATABASE_DIR
+    from app.database import get_setting
+    from app.model_catalog import DEFAULT_GOOGLE_MODEL, DEFAULT_NVIDIA_MODEL
+    from app.thumbnails import generate_thumbnails, suggest_thumbnail_texts
+    from app.ai.titles import make_generator
+
+    _ensure_not_busy(video_id, "gerar miniaturas neste vídeo")
+    video = get_video_by_id(video_id)
+    if not video or "data" not in video:
+        raise HTTPException(status_code=404, detail="Dados de transcrição não encontrados")
+    if not video.get("file_path") or not Path(video["file_path"]).exists():
+        raise HTTPException(status_code=404, detail="O arquivo de vídeo não foi encontrado no disco.")
+    ai_data = video["data"]
+    duration = float(video.get("duration_sec") or 0.0)
+
+    frames = generate_thumbnails(Path(video["file_path"]), DATABASE_DIR / "mosaics", video_id, ai_data, duration)
+    if not frames:
+        raise HTTPException(status_code=500, detail="Não foi possível extrair quadros deste vídeo.")
+
+    texts, note = [], ""
+    if req.engine in ("gemini", "nvidia"):
+        key = get_setting("google_api_key" if req.engine == "gemini" else "nvidia_api_key", "")
+        model = req.model or get_setting(
+            "google_model" if req.engine == "gemini" else "nvidia_model",
+            DEFAULT_GOOGLE_MODEL if req.engine == "gemini" else DEFAULT_NVIDIA_MODEL,
+        )
+        if key:
+            try:
+                texts = suggest_thumbnail_texts(ai_data, make_generator(req.engine, key, model))
+            except Exception as e:
+                note = f"Quadros prontos, mas a IA não sugeriu textos: {e}"
+        else:
+            note = "Quadros prontos. Configure a chave da IA para receber sugestões de texto."
+
+    ai_data["thumbnails"] = {"frames": frames, "texts": texts}
+    save_video_result(
+        video_id=video_id,
+        game_name=ai_data.get("main_game", video.get("game_name", "")),
+        duration=duration,
+        mosaic_path=video.get("mosaic_path", ""),
+        srt_path=video.get("srt_path", ""),
+        ai_data=ai_data,
+    )
+    return {"frames": frames, "texts": texts, "note": note}
+
+
 @router.get("/api/claude-prompt/{video_id}")
 def get_claude_prompt(video_id: int):
     video = get_video_by_id(video_id)

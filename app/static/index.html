@@ -339,6 +339,16 @@
                                 <label class="sr-only" for="yt-description-box">Descrição do YouTube</label>
                                 <textarea id="yt-description-box" rows="14" readonly></textarea>
                             </section>
+                            <section class="card" id="thumbnail-card">
+                                <h3>Sugestão de miniatura</h3>
+                                <p class="section-desc">Separa de 3 a 5 quadros nítidos dos momentos mais agitados (1280x720, prontos para o YouTube) e sugere dois textos curtos de chamada. Escolha, baixe e monte a capa no editor que preferir.</p>
+                                <div class="yt-actions">
+                                    <button id="btn-suggest-thumbnails" class="btn-secondary">Sugerir miniaturas</button>
+                                    <span id="thumbnail-status" class="field-hint" role="status"></span>
+                                </div>
+                                <div id="thumbnail-texts" class="thumbnail-texts"></div>
+                                <div id="thumbnail-grid" class="thumbnail-grid"></div>
+                            </section>
                         </div>
 
                         <!-- ABA: LEGENDA / TRANSCRIÇÃO -->
@@ -499,6 +509,7 @@
     <script src="/static/js/validation.js?v=1"></script>
     <script src="/static/js/titles.js?v=1"></script>
     <script src="/static/js/mosaics.js?v=1"></script>
+    <script src="/static/js/thumbnails.js?v=1"></script>
     <script src="/static/guide.js?v=1"></script>
     <script src="/static/updater.js?v=2"></script>
     <script src="/static/setup.js?v=1"></script>
