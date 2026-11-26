@@ -806,3 +806,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .token-estimate.token-ok { color: #2f7d4f; }
 .token-estimate.token-atencao { color: #a56a00; }
 .token-estimate.token-estoura { color: #b3261e; font-weight: 600; }
+
+/* Validador de metadados (B4) */
+.validation-box { margin: 10px 0; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border, #ccc); font-size: 14px; }
+.validation-box ul { margin: 0; padding-left: 18px; }
+.validation-box.validation-ok { color: #2f7d4f; }
+.validation-box.validation-warn { color: #a56a00; }
+.validation-box.validation-error { color: #b3261e; }

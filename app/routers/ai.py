@@ -30,6 +30,20 @@ def estimate_ai_tokens(video_id: int, engine: str = "gemini", model: str = ""):
     return estimate_request(transcript, engine, model, mosaic_count=len(mosaics))
 
 
+@router.get("/api/validate-metadata/{video_id}")
+def validate_metadata(video_id: int, title: str = ""):
+    """Avisos sobre título, descrição, tags e capítulos antes de publicar (B4)."""
+    from pathlib import Path
+    from app.ai.validator import validate_youtube_metadata, probe_video_format
+    video = get_video_by_id(video_id)
+    if not video or "data" not in video:
+        raise HTTPException(status_code=404, detail="Dados de transcrição não encontrados")
+    ai_data = video["data"]
+    if not ai_data.get("video_info") and video.get("file_path"):
+        ai_data["video_info"] = probe_video_format(Path(video["file_path"]))
+    return validate_youtube_metadata(ai_data, title=title)
+
+
 @router.get("/api/claude-prompt/{video_id}")
 def get_claude_prompt(video_id: int):
     video = get_video_by_id(video_id)
