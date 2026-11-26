@@ -55,7 +55,10 @@ ROTAS_ESPERADAS = [
     ("POST", "/api/update/apply", "update_apply"),
     ("GET", "/api/update/progress", "update_progress"),
     ("POST", "/api/update/restart", "update_restart"),
-    ("GET", "/api/diagnostics/report", "get_diagnostic_report")
+    ("GET", "/api/diagnostics/report", "get_diagnostic_report"),
+    ("GET", "/api/notify", "get_notify_settings"),
+    ("POST", "/api/notify/webhook", "save_notify_webhook"),
+    ("POST", "/api/notify/test", "notify_test"),
 ]
 
 

@@ -592,14 +592,24 @@ if __name__ == "__main__":
     parser.add_argument("--separate-tracks", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
 
-    run_worker(
-        job_id=args.job_id,
-        video_id=args.video_id,
-        mode=args.mode,
-        manual_game=args.game,
-        engine=args.engine,
-        custom_model=args.model,
-        extra_context=args.context,
-        normalize_audio=args.normalize_audio,
-        separate_tracks=args.separate_tracks,
-    )
+    from app.keep_awake import stay_awake
+    from app.notifications import notify_job_end
+
+    # E4: o PC não suspende enquanto o job roda e o resultado é avisado ao terminar.
+    with stay_awake():
+        try:
+            run_worker(
+                job_id=args.job_id,
+                video_id=args.video_id,
+                mode=args.mode,
+                manual_game=args.game,
+                engine=args.engine,
+                custom_model=args.model,
+                extra_context=args.context,
+                normalize_audio=args.normalize_audio,
+                separate_tracks=args.separate_tracks,
+            )
+        finally:
+            # Só jobs longos avisam; reanálise de IA e ajuste de volume de um vídeo o usuário acompanha na tela.
+            if args.mode in ("full", "normalize_batch"):
+                notify_job_end(args.job_id, wait=True)

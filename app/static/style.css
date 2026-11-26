@@ -804,3 +804,10 @@ button:disabled { cursor: default; opacity: 0.5; }
     .history-modal-body { grid-template-columns: 1fr; }
     .history-list-pane { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line-soft); }
 }
+
+/* ---------- Faixa de fim de processamento (E4) ---------- */
+.job-end-banner { position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: 420px; display: flex; gap: 12px; align-items: center;
+    padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+    border-radius: 6px; font-size: 13.5px; color: var(--text); }
+.job-end-banner.is-error { border-left-color: var(--err); }
+.job-end-banner button { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; }
