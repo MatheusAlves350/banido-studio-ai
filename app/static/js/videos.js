@@ -526,6 +526,7 @@ function renderCompletedVideo(v) {
     showGlossarySuggestions([]);
     setupTranscriptExplorer(data.segments || []);
 
+    if (typeof refreshMetadataValidation === "function") refreshMetadataValidation(v.id);
     const ytDesc = data.youtube_description || "";
     lastYoutubeTagsCsv = data.youtube_tags_csv || "";
     document.getElementById("yt-description-box").value = ytDesc;

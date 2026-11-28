@@ -27,6 +27,7 @@ from app.lossless_media import (
     finalize_normalized_mkv,
 )
 from app.mosaic_generator import generate_video_mosaic
+from app.ai.validator import probe_video_format
 from app.transcriber_v3 import run_transcription_pipeline
 from app.voice_bank import list_known_voice_names
 from app.ai_director import (
@@ -393,7 +394,8 @@ def run_worker(
             "raw_transcript_prompt": transcript_for_ai,
             "speaker_samples": speaker_samples,
             "segments": segments,
-            "hype_scores": hype_scores
+            "hype_scores": hype_scores,
+            "video_info": probe_video_format(mkv_path)
         }
         ai_data["youtube_description"] = build_youtube_description(ai_data)
 
@@ -466,6 +468,9 @@ def run_worker(
                     ai_data["ai_warning"] = err_txt
         else:
             print("[IA CLAUDE WEB] Pacote de prompt preparado para cópia manual no Claude Web!", flush=True)
+
+        # Refaz descrição e tags já com a resolução/fps confirmados pelo ffprobe (tag "4K 60fps" só vale se confirmada)
+        ai_data["youtube_description"] = build_youtube_description(ai_data)
 
         # 4. Deduções da IA mantidas APENAS como sugestão no painel (SEM auto-salvar amostras .WAV!)
         if isinstance(ai_data.get("speaker_mapping"), dict) and ai_data["speaker_mapping"]:

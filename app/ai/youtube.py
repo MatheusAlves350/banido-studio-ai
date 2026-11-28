@@ -1,4 +1,5 @@
 """Montagem de título, descrição, tags e capítulos para o YouTube a partir da resposta da IA."""
+import os
 import re
 from typing import Dict, Any, List, Optional
 from app.config import PC_SPECS, OBS_SPECS, AI_SPECS, HOST_SPEAKER_NAME
@@ -6,6 +7,15 @@ from app.config import PC_SPECS, OBS_SPECS, AI_SPECS, HOST_SPEAKER_NAME
 
 YT_MAX_DESC_CHARS = 5000
 YT_MAX_TAGS_CHARS = 480
+DEFAULT_FIXED_TAGS = ["Grupo Banido", "Discord", "Gameplay", "Melhores Momentos"]
+
+
+def get_fixed_tags() -> List[str]:
+    """Tags fixas do canal. BANIDO_FIXED_TAGS no .env (separadas por vírgula) substitui a lista padrão."""
+    raw = os.getenv("BANIDO_FIXED_TAGS")
+    if raw is None:
+        return list(DEFAULT_FIXED_TAGS)
+    return [t.strip() for t in raw.split(",") if t.strip()]
 
 GENERIC_SPEAKER_LABELS = {
     "discord", "amigo", "amiga", "desconhecido", "desconhecida",
@@ -130,7 +140,10 @@ def build_youtube_tags_csv(ai_data: Dict[str, Any], max_chars: int = YT_MAX_TAGS
             for tag in t.get("tags") or []:
                 raw_tags.append(str(tag))
 
-    raw_tags.extend(["Grupo Banido", "Discord", "Gameplay", "Melhores Momentos", "4K 60fps"])
+    raw_tags.extend(get_fixed_tags())
+    info = ai_data.get("video_info") or {}
+    if int(info.get("width") or 0) >= 3840 and float(info.get("fps") or 0) >= 59.0:
+        raw_tags.append("4K 60fps")  # só entra se o ffprobe confirmou (B4)
 
     cleaned_tags: List[str] = []
     seen = set()
