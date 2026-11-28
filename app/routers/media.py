@@ -13,6 +13,7 @@ from app.config import (
 from app.database import (
     get_video_by_id, update_video_paths_after_rename
 )
+from app.ai.youtube import build_chapters_text
 from app.lossless_media import (
     rename_mkv_and_srt, export_lossless_highlight, embed_chapters_into_mkv
 )
@@ -217,3 +218,35 @@ def embed_chapters(video_id: int, req: EmbedChaptersRequest):
     if not res.get("success"):
         raise HTTPException(status_code=500, detail=res.get("error", "Erro ao embutir capítulos no MKV"))
     return res
+
+
+def _chapters_text_for_video(video_id: int):
+    video = get_video_by_id(video_id)
+    if not video or not video.get("data") or not video["data"].get("chapters"):
+        raise HTTPException(status_code=404, detail="Esta gravação ainda não tem capítulos. Analise o vídeo com a IA primeiro.")
+    text = build_chapters_text(video["data"]["chapters"], duration_sec=video.get("duration_sec"))
+    count = len(text.splitlines())
+    warning = None
+    if count < 3:
+        warning = "O YouTube só cria capítulos com 3 ou mais marcações; esta lista tem menos que isso."
+    return video, text, count, warning
+
+
+@router.get("/api/chapters/text/{video_id}")
+def get_chapters_text(video_id: int):
+    """C5: capítulos em texto puro para o botão "Copiar capítulos"."""
+    _, text, count, warning = _chapters_text_for_video(video_id)
+    return {"text": text, "count": count, "warning": warning}
+
+
+@router.post("/api/chapters/export/{video_id}")
+def export_chapters_txt(video_id: int):
+    """C5: salva `<nome da gravação> - capitulos.txt` ao lado do MKV (sobrescreve a versão anterior)."""
+    video, text, count, warning = _chapters_text_for_video(video_id)
+    mkv_path = Path(video["file_path"])
+    out_path = mkv_path.with_name(f"{mkv_path.stem} - capitulos.txt")
+    try:
+        out_path.write_text(text + "\n", encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Não foi possível salvar o arquivo de capítulos: {e}")
+    return {"success": True, "path": str(out_path), "filename": out_path.name, "count": count, "warning": warning}

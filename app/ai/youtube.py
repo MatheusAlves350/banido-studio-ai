@@ -208,6 +208,15 @@ def normalize_youtube_chapters(
     ]
 
 
+def build_chapters_text(raw_chapters: Any, duration_sec: Optional[float] = None) -> str:
+    """C5: só os capítulos, uma linha por capítulo (`00:00:00 - Título`), prontos para colar na descrição.
+
+    Usa a mesma normalização da descrição completa (primeiro em 00:00:00, mínimo de 10 s entre eles).
+    """
+    chapters = normalize_youtube_chapters(raw_chapters, duration_sec=duration_sec)
+    return "\n".join(f"{c['timestamp']} - {c['title']}" for c in chapters)
+
+
 def normalize_ai_data(data: Dict[str, Any], duration_sec: Optional[float] = None) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("A resposta JSON da IA não é um objeto válido.")
