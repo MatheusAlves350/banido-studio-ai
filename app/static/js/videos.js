@@ -426,8 +426,7 @@ async function fetchVideoDetails(videoId, includeData = true) {
                 errorContainer.style.display = "block";
                 btnReanalyze.style.display = "none";
                 btnReset.style.display = "inline-block";
-                document.getElementById("error-title").innerText = "O processamento falhou:";
-                document.getElementById("error-msg").innerText = v.progress_msg || "Ocorreu um erro durante o processamento.";
+                showFriendlyError("O processamento falhou:", v);
                 document.getElementById("console-output").style.display = "block";
             } else {
                 // unprocessed
@@ -438,8 +437,7 @@ async function fetchVideoDetails(videoId, includeData = true) {
 
                 if (v.progress_msg && v.progress_msg.includes("interrompido")) {
                     errorContainer.style.display = "block";
-                    document.getElementById("error-title").innerText = "O processamento anterior foi interrompido:";
-                    document.getElementById("error-msg").innerText = v.progress_msg;
+                    showFriendlyError("O processamento anterior foi interrompido:", v);
                 } else {
                     errorContainer.style.display = "none";
                 }
@@ -554,3 +552,21 @@ function renderCompletedVideo(v) {
     }
 }
 
+// Mostra o erro em linguagem simples (o que houve + o que fazer) e guarda o texto original em "Detalhes técnicos".
+function showFriendlyError(title, v) {
+    const info = v.error_info;
+    const todo = document.getElementById("error-todo");
+    const tech = document.getElementById("error-tech");
+    document.getElementById("error-title").innerText = title;
+    if (!info) {
+        document.getElementById("error-msg").innerText = v.progress_msg || "Ocorreu um erro durante o processamento.";
+        todo.hidden = true;
+        tech.hidden = true;
+        return;
+    }
+    document.getElementById("error-msg").innerText = info.what;
+    todo.innerText = "O que fazer agora: " + info.todo + (info.report ? " Se não resolver, clique em “Relatar um problema”." : "");
+    todo.hidden = false;
+    document.getElementById("error-tech-text").innerText = info.technical || v.progress_msg || "";
+    tech.hidden = !(info.technical || v.progress_msg);
+}

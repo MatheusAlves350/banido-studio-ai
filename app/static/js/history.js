@@ -43,7 +43,7 @@ async function loadHistoryList(autoSelectFirst = false) {
                     ${escapeHtml(j.started_at || "")}, duração ${formatDuration(j.elapsed_sec)}<br>
                     IA: ${escapeHtml(j.engine)} (${escapeHtml(j.model || "padrão")})<br>
                     <span style="color:${j.status === 'error' ? '#f87171' : '#94a3b8'};">
-                        ${escapeHtml((j.error_detail || j.last_step || "").slice(0, 75))}
+                        ${escapeHtml((j.error_friendly || j.error_detail || j.last_step || "").slice(0, 110))}
                     </span>
                 </div>
             `;
