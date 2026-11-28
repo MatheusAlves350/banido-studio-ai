@@ -179,7 +179,7 @@ async function exportManualCut() {
         if (data.success) {
             const clipsDir = studioConfig.clips_dir || "Cortes";
             const savedTarget = data.clip_path || `${clipsDir}/${data.filename}`;
-            alert(`Corte exportado.\nSalvo em: ${savedTarget}`);
+            alert(`Corte exportado.\nSalvo em: ${savedTarget}${describeCutVerification(data.verification)}`);
         } else {
             alert("Erro ao gerar corte manual: " + (data.detail || data.error || "Desconhecido"));
         }
@@ -217,7 +217,7 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
         if (data.success) {
             const clipsDir = studioConfig.clips_dir || "Cortes";
             const savedTarget = data.clip_path || `${clipsDir}/${data.filename}`;
-            alert(`Corte exportado.\nSalvo em: ${savedTarget}`);
+            alert(`Corte exportado.\nSalvo em: ${savedTarget}${describeCutVerification(data.verification)}`);
         } else {
             alert("Erro ao gerar corte: " + (data.detail || data.error || "Desconhecido"));
         }
@@ -229,3 +229,10 @@ async function cutHighlight(btn, videoId, startSec, endSec, title) {
     }
 }
 
+
+// C4: texto da conferência automática do corte (verde, amarelo ou vermelho).
+function describeCutVerification(v) {
+    if (!v || !v.message) return "";
+    const label = { ok: "Verificação: ", warn: "Atenção: ", bad: "Problema: " }[v.status] || "";
+    return `\n\n${label}${v.message}`;
+}
