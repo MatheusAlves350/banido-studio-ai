@@ -53,17 +53,59 @@ def segment_matches(seg: Dict[str, Any], start: float) -> bool:
         return False
 
 
+def edit_matches_segment(edit: Optional[Dict[str, Any]], seg: Dict[str, Any]) -> bool:
+    return isinstance(edit, dict) and segment_matches(seg, edit.get("start", -1))
+
+
+def reapply_edits(
+    segments: List[Dict[str, Any]],
+    edits: Dict[str, Dict[str, Any]],
+) -> tuple[int, Dict[str, Dict[str, Any]]]:
+    """Reaplica as correções salvas depois de uma nova transcrição e reindexa o mapa de edições.
+
+    Edições casadas passam a usar o novo índice da fala; edições que não casaram ficam
+    preservadas sob chaves `unmatched_*` para não colidirem com índices numéricos.
+    """
+    applied = 0
+    used_indices = set()
+    updated: Dict[str, Dict[str, Any]] = {}
+
+    for raw_key, edit in edits.items():
+        if not isinstance(edit, dict):
+            continue
+        target_start = edit.get("start", -1)
+        best_idx = None
+        best_diff = None
+        for idx, seg in enumerate(segments):
+            if idx in used_indices or not segment_matches(seg, target_start):
+                continue
+            diff = abs(float(seg.get("start", 0.0)) - float(target_start))
+            if best_diff is None or diff < best_diff:
+                best_idx = idx
+                best_diff = diff
+
+        if best_idx is not None:
+            seg = segments[best_idx]
+            seg["text"] = edit.get("text", seg.get("text", ""))
+            used_indices.add(best_idx)
+            new_entry = dict(edit)
+            new_entry["start"] = seg.get("start", edit.get("start", 0.0))
+            updated[str(best_idx)] = new_entry
+            applied += 1
+        else:
+            unmatched_key = raw_key if str(raw_key).startswith("unmatched_") else f"unmatched_{raw_key}"
+            while unmatched_key in updated:
+                unmatched_key += "_"
+            updated[unmatched_key] = dict(edit)
+
+    return applied, updated
+
+
 def apply_edits(segments: List[Dict[str, Any]], edits: Dict[str, Dict[str, Any]]) -> int:
     """Reaplica as correções salvas depois de uma nova transcrição. Retorna quantas foram aplicadas.
 
     Cada correção procura a fala com o mesmo instante de início (tolerância de meio segundo)."""
-    applied = 0
-    for edit in edits.values():
-        for seg in segments:
-            if segment_matches(seg, edit.get("start", -1)):
-                seg["text"] = edit.get("text", seg.get("text", ""))
-                applied += 1
-                break
+    applied, _ = reapply_edits(segments, edits)
     return applied
 
 

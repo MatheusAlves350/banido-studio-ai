@@ -102,7 +102,7 @@ function renderTranscriptResults() {
         });
 
         const idx = activeSegments.indexOf(seg);
-        const edit = transcriptEdits[String(idx)];
+        const edit = getSegmentEdit(seg, idx);
         if (edit) {
             const mark = document.createElement("span");
             mark.className = "tag-badge";

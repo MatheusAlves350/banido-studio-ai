@@ -9,7 +9,7 @@ from app.ai_director import build_youtube_description, format_transcript_for_ai
 from app.database import get_video_by_id, now_str, save_video_result
 from app.transcriber_v3 import export_srt_file
 from app.transcription.edits import (
-    clean_text, load_edits, save_edits, segment_matches, suggest_glossary_terms,
+    clean_text, edit_matches_segment, load_edits, save_edits, segment_matches, suggest_glossary_terms,
 )
 from app.transcription.glossary import load_glossary
 from app.voice_bank import list_known_voice_names
@@ -39,7 +39,7 @@ def _load_segment(video_id: int, index: int, start: float):
     return video, segments
 
 
-def _persist(video: Dict[str, Any], segments: list) -> None:
+def _persist(video: Dict[str, Any], segments: list) -> str:
     """Regrava o .srt e atualiza texto da IA e descrição do YouTube, como na confirmação de vozes."""
     ai_data = video["data"]
     srt_path = Path(video["srt_path"]) if video.get("srt_path") else Path(video["file_path"]).with_suffix(".srt")
@@ -51,7 +51,8 @@ def _persist(video: Dict[str, Any], segments: list) -> None:
         known_friends=list_known_voice_names(exclude_host=False),
         extra_context=video.get("session_context", ""),
     )
-    ai_data["youtube_description"] = build_youtube_description(ai_data)
+    yt_desc = build_youtube_description(ai_data)
+    ai_data["youtube_description"] = yt_desc
     save_video_result(
         video_id=video["id"],
         game_name=video.get("game_name", ""),
@@ -60,12 +61,15 @@ def _persist(video: Dict[str, Any], segments: list) -> None:
         srt_path=str(srt_path),
         ai_data=ai_data,
     )
+    return yt_desc
 
 
-def _response(edits: dict) -> Dict[str, Any]:
+def _response(edits: dict, text: str, youtube_description: str) -> Dict[str, Any]:
     return {
         "success": True,
+        "text": text,
         "edits": edits,
+        "youtube_description": youtube_description,
         "glossary_suggestions": suggest_glossary_terms(edits, load_glossary()),
     }
 
@@ -81,15 +85,17 @@ def edit_transcript_segment(video_id: int, req: TranscriptEditRequest):
         seg = segments[req.index]
         edits = load_edits(video_id)
         key = str(req.index)
-        original = edits[key]["original"] if key in edits else str(seg.get("text", "")).strip()
+        existing = edits.get(key)
+        original = existing["original"] if edit_matches_segment(existing, seg) else str(seg.get("text", "")).strip()
         if text == original:
-            edits.pop(key, None)
+            if edit_matches_segment(existing, seg):
+                edits.pop(key, None)
         else:
             edits[key] = {"start": seg.get("start", 0.0), "original": original, "text": text, "edited_at": now_str()}
         seg["text"] = text
-        _persist(video, segments)
+        yt_desc = _persist(video, segments)
         save_edits(video_id, edits)
-    return _response(edits)
+    return _response(edits, text, yt_desc)
 
 
 @router.post("/api/video/{video_id}/transcript/undo")
@@ -97,11 +103,15 @@ def undo_transcript_edit(video_id: int, req: TranscriptUndoRequest):
     _ensure_not_busy(video_id, "desfazer a edição da legenda deste vídeo")
     with SPEAKER_CONFIRM_LOCK:
         video, segments = _load_segment(video_id, req.index, req.start)
+        seg = segments[req.index]
         edits = load_edits(video_id)
-        edit = edits.pop(str(req.index), None)
-        if not edit:
+        key = str(req.index)
+        existing = edits.get(key)
+        if not edit_matches_segment(existing, seg):
             raise HTTPException(status_code=404, detail="Esta fala não foi editada.")
-        segments[req.index]["text"] = edit["original"]
-        _persist(video, segments)
+        edit = edits.pop(key)
+        restored_text = edit["original"]
+        seg["text"] = restored_text
+        yt_desc = _persist(video, segments)
         save_edits(video_id, edits)
-    return _response(edits)
+    return _response(edits, restored_text, yt_desc)

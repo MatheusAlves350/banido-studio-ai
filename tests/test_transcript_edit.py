@@ -18,8 +18,12 @@ def test_salvar_carregar_e_apagar(tmp_path):
 def test_reaplica_pelo_instante_de_inicio():
     segs = [{"start": 0.0, "text": "oi"}, {"start": 10.2, "text": "e ai jett"}]
     edits = {"5": {"start": 10.0, "original": "e ai jett", "text": "E aí, Jett"}, "9": {"start": 99.0, "original": "x", "text": "y"}}
-    assert ed.apply_edits(segs, edits) == 1
+    applied, updated = ed.reapply_edits(segs, edits)
+    assert applied == 1
     assert segs[1]["text"] == "E aí, Jett" and segs[0]["text"] == "oi"
+    assert "1" in updated and updated["1"]["start"] == 10.2
+    assert "5" not in updated and "9" not in updated
+    assert "unmatched_9" in updated
 
 
 def test_palavras_corrigidas_e_sugestoes():
@@ -64,8 +68,10 @@ def test_rotas_editar_e_desfazer(tmp_path, monkeypatch):
     h = {"X-Banido-Token": m.API_AUTH_TOKEN}
     url = f"/api/video/{vid}/transcript"
 
-    r = client.post(f"{url}/edit", json={"index": 1, "start": 2.0, "text": "o Jett chegou"}, headers=h)
+    r = client.post(f"{url}/edit", json={"index": 1, "start": 2.0, "text": "  o   Jett chegou  "}, headers=h)
     assert r.status_code == 200, r.text
+    assert r.json()["text"] == "o Jett chegou"
+    assert "youtube_description" in r.json()
     assert r.json()["edits"]["1"]["original"] == "o jet chegou"
     assert "o Jett chegou" in mkv.with_suffix(".srt").read_text(encoding="utf-8")
     assert db.get_video_by_id(vid)["data"]["segments"][1]["text"] == "o Jett chegou"
@@ -76,8 +82,14 @@ def test_rotas_editar_e_desfazer(tmp_path, monkeypatch):
     assert r.json()["edits"]["1"]["original"] == "o jet chegou"
 
     r = client.post(f"{url}/undo", json={"index": 1, "start": 2.0}, headers=h)
+    assert r.json()["text"] == "o jet chegou"
     assert r.json()["edits"] == {}
     assert "o jet chegou" in mkv.with_suffix(".srt").read_text(encoding="utf-8")
+
+    # proteção contra chave antiga desalinhada no arquivo de edições (ex.: após reprocessar)
+    ed.save_edits(vid, {"0": {"start": 99.0, "original": "texto de outra fala", "text": "outro", "edited_at": "x"}})
+    assert client.post(f"{url}/undo", json={"index": 0, "start": 0.0}, headers=h).status_code == 404
+    assert db.get_video_by_id(vid)["data"]["segments"][0]["text"] == "oi gente"
 
     assert client.post(f"{url}/undo", json={"index": 1, "start": 2.0}, headers=h).status_code == 404
     assert client.post(f"{url}/edit", json={"index": 1, "start": 2.0, "text": "  "}, headers=h).status_code == 400

@@ -4,11 +4,21 @@
 
 let transcriptEdits = {};
 
+function getSegmentEdit(seg, idx) {
+    if (idx < 0) return null;
+    const edit = transcriptEdits[String(idx)];
+    if (!edit) return null;
+    const segStart = Number(seg?.start);
+    const editStart = Number(edit.start);
+    if (!Number.isFinite(segStart) || !Number.isFinite(editStart)) return null;
+    return Math.abs(segStart - editStart) <= 0.5 ? edit : null;
+}
+
 function startTranscriptEdit(row, seg, idx) {
     if (idx < 0) return;
     const textBox = row.querySelector(".transcript-row-text");
     const actions = row.querySelector(".transcript-row-actions");
-    const edit = transcriptEdits[String(idx)];
+    const edit = getSegmentEdit(seg, idx);
     const spk = escapeHtml(seg.speaker || "Discord");
     const ts = escapeHtml(formatSecondsToHHMMSS(seg.start));
 
@@ -49,8 +59,12 @@ function startTranscriptEdit(row, seg, idx) {
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             transcriptEdits = data.edits || {};
-            const e = transcriptEdits[String(idx)];
-            seg.text = e ? e.text : (edit ? edit.original : area.value);
+            const e = getSegmentEdit(seg, idx);
+            seg.text = typeof data.text === "string" ? data.text : (e ? e.text : (edit ? edit.original : area.value));
+            if (typeof data.youtube_description === "string") {
+                const ytBox = document.getElementById("yt-description-box");
+                if (ytBox) ytBox.value = data.youtube_description;
+            }
             renderTranscriptResults();
             showGlossarySuggestions(data.glossary_suggestions || []);
         } catch (err) {
@@ -81,6 +95,7 @@ function showGlossarySuggestions(terms) {
                 });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 btn.remove();
+                if (!el.children.length) el.style.display = "none";
             } catch (err) {
                 btn.disabled = false;
                 btn.textContent = "Erro ao salvar no glossário";

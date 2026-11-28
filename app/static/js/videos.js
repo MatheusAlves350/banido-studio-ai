@@ -522,6 +522,7 @@ function renderCompletedVideo(v) {
     renderChapters(data.chapters || []);
     renderTopics(data.topics || []);
     transcriptEdits = v.transcript_edits || {};
+    showGlossarySuggestions([]);
     setupTranscriptExplorer(data.segments || []);
 
     const ytDesc = data.youtube_description || "";
