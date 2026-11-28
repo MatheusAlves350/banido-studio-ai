@@ -232,7 +232,8 @@ def reconcile_worker_processes():
             finished_vids.append(vid)
             _cleanup_boot_log(info, append_to_job_log=(ret != 0))
             crash_summary = ""
-            if ret not in (0, 1):  # 1 = erro tratado pelo worker, já explicado no log do job
+            # ret == 1 com arquivos brutos ainda no disco = encerramento abrupto (ex.: Gerenciador de Tarefas no Windows)
+            if ret != 0 and (ret != 1 or crash_capture.has_pending_crash_files(job_id, LOGS_DIR)):
                 crash_summary = _record_worker_crash(info, ret)
             if vid == 0:
                 job = get_job_by_id(job_id)
