@@ -1,0 +1,15 @@
+[package]
+name = "banido-ml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Whisper hallucination filtering, multi-track merge, SRT, UPGMA voice clustering, Voice Bank, and ML engine traits."
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true

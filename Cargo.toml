@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/banido-core",
+    "crates/banido-media",
+    "crates/banido-ml",
+    "crates/banido-ai",
+    "crates/banido-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+unicode-normalization = "0.1"
+hound = "3.5"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "fs", "time", "net"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+urlencoding = "2"
+tempfile = "3"
+proptest = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

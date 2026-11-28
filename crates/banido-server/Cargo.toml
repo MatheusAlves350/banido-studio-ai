@@ -1,0 +1,23 @@
+[package]
+name = "banido-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Axum HTTP API server, CSRF/session middleware, worker orchestrator, and CLI benchmark/parity runner."
+
+[dependencies]
+banido-core = { path = "../banido-core" }
+banido-media = { path = "../banido-media" }
+banido-ml = { path = "../banido-ml" }
+banido-ai = { path = "../banido-ai" }
+axum.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

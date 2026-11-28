@@ -42,3 +42,23 @@ jobs:
           BANIDO_OBS_DIR: /tmp/banido_ci_obs
           BANIDO_TEMP_DIR: /tmp/banido_ci_tmp
         run: pytest -q
+
+  rust-check-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (zero warnings, #![forbid(unsafe_code)])
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run Rust unit, integration, property, and doc tests
+        run: |
+          cargo test --workspace --all-targets
+          cargo test --workspace --doc
+

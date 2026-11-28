@@ -1,0 +1,18 @@
+[package]
+name = "banido-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SoA/SIMD audio DSP, WAV I/O, FFmpeg/mkvpropedit builders, chapters, and mosaic generator."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+hound.workspace = true
+image.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
