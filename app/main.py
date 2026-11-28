@@ -26,7 +26,7 @@ from app import queue_manager
 from app import updater  # noqa: F401 (testes acessam app.main.updater)
 from app.routers import (
     videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript,
-    backup as backup_routes, notify, queue,
+    backup as backup_routes, notify, queue, obs,
 )
 from app import backup
 
@@ -161,7 +161,7 @@ def get_index():
 
 
 # As rotas da API ficam em app/routers/. A ordem abaixo é a mesma de antes da separação.
-for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes, notify, queue):
+for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes, notify, queue, obs):
     app.include_router(_modulo.router)
 
 

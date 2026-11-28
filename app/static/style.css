@@ -896,3 +896,22 @@ button[hidden] { display: none !important; }
 .pack-block textarea, .pack-block input[type="text"] { width: 100%; box-sizing: border-box; }
 .pack-row { display: flex; gap: 8px; }
 .pack-row input { flex: 1; min-width: 0; }
+
+/* ---------- Conferir o OBS (E5) ---------- */
+.obs-card { max-width: 760px; }
+.obs-card .modal-body { max-height: 72vh; overflow-y: auto; }
+.obs-card h4 { margin: 18px 0 8px; font-size: 14px; }
+.obs-scene, .obs-help { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.obs-warn { margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--warn); border-radius: var(--r-ctrl); font-size: 13px; }
+.obs-layouts { display: grid; gap: 6px; }
+.obs-layout { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-ctrl); font-size: 13px; }
+.obs-layout small { display: block; color: var(--muted); margin-top: 2px; }
+.obs-table-wrap { overflow-x: auto; }
+.obs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.obs-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.obs-table td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.obs-table select { width: 100%; }
+.obs-new { color: var(--accent); white-space: nowrap; }
+.obs-diff { border: 1px solid var(--line); border-radius: var(--r-ctrl); padding: 10px 12px; font-size: 13px; }
+.obs-diff ul { margin: 0; padding-left: 18px; }
+.obs-footer-right { display: flex; gap: 8px; margin-left: auto; }
