@@ -103,8 +103,47 @@ function updateActiveModelDropdown(preferredModel = null) {
         const defaultNvidia = preferredModel || document.getElementById("select-nvidia-default-model")?.value || NVIDIA_MODELS[0].value;
         const validNvidia = NVIDIA_MODELS.some(m => m.value === defaultNvidia) ? defaultNvidia : NVIDIA_MODELS[0].value;
         modelSelect.value = validNvidia;
+    } else if (engine === "ollama") {
+        modelSelect.style.display = "inline-block";
+        loadOllamaModels(preferredModel);
     } else {
         modelSelect.style.display = "none";
+    }
+    if (engine !== "ollama") {
+        const hint = document.getElementById("ollama-status");
+        if (hint) hint.textContent = "";
+    }
+}
+
+async function loadOllamaModels(preferredModel = null) {
+    const modelSelect = document.getElementById("select-active-model");
+    const hint = document.getElementById("ollama-status");
+    try {
+        const res = await fetch("/api/ollama/status");
+        const d = await res.json();
+        if (document.getElementById("select-engine").value !== "ollama") return;
+        modelSelect.innerHTML = "";
+        if (!d.running) {
+            modelSelect.style.display = "none";
+            hint.textContent = "O Ollama não está aberto. Instale em ollama.com, abra o programa e baixe um modelo (exemplo: ollama pull qwen2.5:7b). A IA local costuma ser mais fraca que Gemini e NVIDIA em português e humor.";
+            return;
+        }
+        if (!d.models.length) {
+            modelSelect.style.display = "none";
+            hint.textContent = "O Ollama está aberto, mas sem modelos. Baixe um com: ollama pull qwen2.5:7b";
+            return;
+        }
+        d.models.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.value;
+            opt.textContent = m.label;
+            modelSelect.appendChild(opt);
+        });
+        if (preferredModel && d.models.some(m => m.value === preferredModel)) modelSelect.value = preferredModel;
+        modelSelect.style.display = "inline-block";
+        hint.textContent = "IA local: a transcrição não sai do seu PC. Pode demorar bem mais que a nuvem.";
+    } catch (_) {
+        hint.textContent = "Não foi possível consultar o Ollama agora.";
     }
 }
 
