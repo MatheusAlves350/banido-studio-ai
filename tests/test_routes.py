@@ -62,7 +62,7 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/glossary", "get_glossary"),
     ("POST", "/api/glossary", "update_glossary"),
     ("POST", "/api/video/{video_id}/transcript/edit", "edit_transcript_segment"),
-    ("POST", "/api/video/{video_id}/transcript/undo", "undo_transcript_edit")
+    ("POST", "/api/video/{video_id}/transcript/undo", "undo_transcript_edit"),
 ]
 
 
