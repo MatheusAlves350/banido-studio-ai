@@ -77,7 +77,9 @@
                         </div>
                         <textarea id="diag-report-text" rows="15" style="width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.45; background: rgba(15, 23, 42, 0.75); color: #e2e8f0; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
                     </div>
-                    <div class="modal-footer" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                    <div class="modal-footer" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center;">
+                        <small id="diag-zip-info" style="flex: 1 1 260px; opacity: 0.85;">O .zip inclui logs das últimas 24 horas, resultado da verificação, versões, histórico das últimas execuções e relatório de queda (se houver). Nenhum vídeo ou chave de API é incluído.</small>
+                        <button type="button" id="diag-zip-btn" class="btn-primary">📦 Gerar relatório de problema (.zip)</button>
                         <button type="button" id="diag-download-btn" class="btn-secondary">💾 Baixar .txt Sanitizado</button>
                         <button type="button" id="diag-copy-btn" class="btn-secondary">📋 Copiar Relatório</button>
                         <button type="button" id="diag-github-btn" class="btn-primary">🐙 Abrir Issue no GitHub</button>
@@ -91,6 +93,7 @@
             $("diag-redact-filenames").addEventListener("change", fetchReport);
             $("diag-copy-btn").addEventListener("click", copyReport);
             $("diag-download-btn").addEventListener("click", downloadReport);
+            $("diag-zip-btn").addEventListener("click", downloadZip);
             $("diag-github-btn").addEventListener("click", openGithubIssue);
             document.addEventListener("keydown", (e) => {
                 if (e.key === "Escape" && modal.style.display !== "none") closeModal();
@@ -153,6 +156,36 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function downloadZip() {
+        const btn = $("diag-zip-btn");
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Gerando...";
+        try {
+            const res = await fetch("/api/diagnostics/package", { cache: "no-store" });
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try { detail = (await res.json()).detail || detail; } catch (_) { /* resposta sem JSON */ }
+                throw new Error(detail);
+            }
+            const blob = await res.blob();
+            const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = match ? match[1] : "banido-relatorio.zip";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (e) {
+            alert("Não foi possível gerar o relatório: " + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+        }
     }
 
     function openGithubIssue() {

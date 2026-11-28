@@ -42,7 +42,7 @@ _SECRET_PATTERNS = [
 _WIN_USER_PATH_RE = re.compile(r"([A-Za-z]:\\Users\\)([^\\/\r\n\"'<>|]+)", re.IGNORECASE)
 _POSIX_USER_PATH_RE = re.compile(r"(/(?:home|Users)/)([^/\r\n\"'<>|\s]+)")
 _IPV4_RE = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
-_TRANSCRIPT_LINE_RE = re.compile(r"^\[FALA #\d+\].*$")
+_TRANSCRIPT_LINE_RE = re.compile(r"^(?:\[\d{2}:\d{2}:\d{2}\]\s*)?\[FALA #\d+\].*$")
 _MEDIA_FILENAME_RE = re.compile(r"[^\\/\r\n\"'<>|:*?]+\.(mkv|mp4|srt|wav)\b", re.IGNORECASE)
 
 
