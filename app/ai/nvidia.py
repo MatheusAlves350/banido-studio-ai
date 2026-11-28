@@ -200,7 +200,8 @@ class NvidiaProvider:
         self.api_key = api_key
         self.model_name = model_name
 
-    def analyze(self, transcript_text, mosaic_jpg_path=None, duration_sec=None, progress_callback=None):
+    def analyze(self, transcript_text, mosaic_jpg_path=None, duration_sec=None, progress_callback=None,
+                extra_mosaic_paths=None):
         # A NVIDIA NIM recebe só texto: a imagem (mosaico) é ignorada, como antes.
         return analyze_with_nvidia_nim(
             self.api_key, transcript_text, model_name=self.model_name,

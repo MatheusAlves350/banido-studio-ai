@@ -158,7 +158,8 @@ def analyze_with_google_gemini(
     mosaic_jpg_path: Optional[Path] = None,
     model_name: str = DEFAULT_GOOGLE_MODEL,
     duration_sec: Optional[float] = None,
-    progress_callback: Optional[Callable[[str, float], None]] = None
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    extra_mosaic_paths: Optional[List[Path]] = None
 ) -> Dict[str, Any]:
     from google import genai
     from google.genai import types
@@ -186,6 +187,18 @@ def analyze_with_google_gemini(
             print(f"[IA GEMINI] Mosaico visual 4x4 anexado ({mosaic_jpg_path.name}, {mosaic_kb:.0f} KB).", flush=True)
         except Exception as e:
             print(f"[IA GEMINI] Aviso: não foi possível carregar mosaico: {e}", flush=True)
+
+    for extra in (extra_mosaic_paths or []):
+        try:
+            with Image.open(extra) as img:
+                img.load()
+                contents.append(img.copy())
+            contents.append(f"Mosaico adicional ({extra.stem.split('_mosaic_')[-1]}): mesma folha de contato, com os timestamps HH:MM:SS de cada cena. Use para conferir trocas de jogo (other_games).")
+        except Exception as e:
+            print(f"[IA GEMINI] Aviso: mosaico adicional {extra.name} ignorado: {e}", flush=True)
+
+    if extra_mosaic_paths:
+        mosaic_info += f" + {len(extra_mosaic_paths)} adicional(is)"
 
     contents.append(transcript_text)
     est_tokens = max(1, len(transcript_text) // 4)
@@ -239,11 +252,12 @@ class GeminiProvider:
         self.api_key = api_key
         self.model_name = model_name
 
-    def analyze(self, transcript_text, mosaic_jpg_path=None, duration_sec=None, progress_callback=None):
+    def analyze(self, transcript_text, mosaic_jpg_path=None, duration_sec=None, progress_callback=None,
+                extra_mosaic_paths=None):
         return analyze_with_google_gemini(
             self.api_key, transcript_text, mosaic_jpg_path=mosaic_jpg_path,
             model_name=self.model_name, duration_sec=duration_sec,
-            progress_callback=progress_callback,
+            progress_callback=progress_callback, extra_mosaic_paths=extra_mosaic_paths,
         )
 
 

@@ -178,21 +178,34 @@ def extract_frames(video_path: Path, timestamps, temp_dir: Path, width: int, hei
     return result, (cuda_ok and not used_cpu)
 
 
-def generate_video_mosaic(video_path: Path, output_jpg_path: Path, num_cols: int = 4, num_rows: int = 4) -> bool:
+def generate_video_mosaic(
+    video_path: Path,
+    output_jpg_path: Path,
+    num_cols: int = 4,
+    num_rows: int = 4,
+    timestamps=None,
+) -> bool:
     """
     Gera folha de contato 4x4 (16 cenas em 2240x1260) com aceleração NVDEC CUDA
     (fallback automático para CPU) e carimbo de tempo HH:MM:SS em fonte legível.
+
+    Com `timestamps`, usa esses instantes (em segundos) no lugar da distribuição padrão e ajusta
+    o número de linhas ao número de quadros (usado pelos mosaicos adicionais do B8).
     """
     temp_dir = output_jpg_path.parent / f"temp_mosaic_{output_jpg_path.stem}"
     try:
-        duration = get_video_duration(video_path)
-        total_frames = num_cols * num_rows
+        if timestamps is None:
+            duration = get_video_duration(video_path)
+            total_frames = num_cols * num_rows
 
-        # Intervalos distribuídos estrategicamente entre 3% e 97% da duração
-        timestamps = [
-            duration * (0.03 + 0.94 * (i / max(1, total_frames - 1)))
-            for i in range(total_frames)
-        ]
+            # Intervalos distribuídos estrategicamente entre 3% e 97% da duração
+            timestamps = [
+                duration * (0.03 + 0.94 * (i / max(1, total_frames - 1)))
+                for i in range(total_frames)
+            ]
+        else:
+            timestamps = list(timestamps)
+            num_rows = max(1, -(-len(timestamps) // num_cols))
 
         temp_dir.mkdir(parents=True, exist_ok=True)
         font = _load_timestamp_font(size=22)

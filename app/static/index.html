@@ -398,6 +398,10 @@
                                 <p class="section-desc">Para quem assina o Claude e não tem chave de API: copie o pedido, cole em claude.ai e traga a resposta de volta.</p>
                                 <div class="claude-steps">
                                     <div><button id="btn-copy-claude-prompt" class="btn-secondary">1. Copiar pedido para o Claude</button></div>
+                                    <div id="claude-mosaic-files" class="claude-mosaic-files" hidden>
+                                        <p class="field-hint">Anexe estas imagens na conversa do Claude, junto com o pedido (ajudam a identificar o jogo e as trocas de jogo):</p>
+                                        <ul id="claude-mosaic-list"></ul>
+                                    </div>
                                     <div class="claude-import-area">
                                         <label class="sr-only" for="claude-response-input">Resposta do Claude</label>
                                         <textarea id="claude-response-input" rows="4" placeholder="Cole aqui a resposta do Claude (o bloco JSON inteiro)"></textarea>
@@ -519,6 +523,7 @@
     <script src="/static/js/tokens.js?v=1"></script>
     <script src="/static/js/validation.js?v=1"></script>
     <script src="/static/js/titles.js?v=1"></script>
+    <script src="/static/js/mosaics.js?v=1"></script>
     <script src="/static/guide.js?v=1"></script>
     <script src="/static/updater.js?v=2"></script>
     <script src="/static/setup.js?v=1"></script>

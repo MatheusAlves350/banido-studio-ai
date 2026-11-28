@@ -93,6 +93,26 @@ def regenerate_video_title(video_id: int, req: RegenerateTitleRequest):
     return {"success": True, "title": new_title, "title_options": ai_data["title_options"]}
 
 
+@router.get("/api/mosaics/{video_id}")
+def list_video_mosaics(video_id: int):
+    """Mosaicos do vídeo (principal, por hora e de mudanças de cena), para anexar no Claude Web (B8)."""
+    import re
+    from app.config import DATABASE_DIR
+    folder = DATABASE_DIR / "mosaics"
+    files = []
+    for path in sorted(folder.glob(f"{video_id}_mosaic*.jpg")):
+        suffix = path.stem[len(f"{video_id}_mosaic"):]
+        if not suffix:
+            label = "Sessão inteira (16 cenas)"
+        elif suffix == "_scenes":
+            label = "Mudanças de cena"
+        else:
+            m = re.match(r"_h(\d+)$", suffix)
+            label = f"Hora {int(m.group(1))}" if m else suffix.strip("_")
+        files.append({"name": path.name, "url": f"/mosaics/{path.name}", "label": label})
+    return {"files": files}
+
+
 @router.get("/api/claude-prompt/{video_id}")
 def get_claude_prompt(video_id: int):
     video = get_video_by_id(video_id)
