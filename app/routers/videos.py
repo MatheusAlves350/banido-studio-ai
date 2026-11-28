@@ -21,6 +21,7 @@ from app.ai_director import (
 from app.lossless_media import (
     inspect_mkv_audio_norm
 )
+from app.transcription.edits import load_edits
 from app.voice_bank import (
     list_known_voice_names
 )
@@ -148,6 +149,7 @@ def get_video_details(video_id: int, include_data: bool = True):
         video["error_info"] = explain(msg)
     if include_data:
         video["known_friends"] = list_known_voice_names(exclude_host=False)
+        video["transcript_edits"] = load_edits(video_id)
 
     # Sincroniza status de normalização da tag do MKV com cache em memória (evita ffprobe a cada clique!)
     if not video.get("audio_normalized") and video.get("status") != "processing":
