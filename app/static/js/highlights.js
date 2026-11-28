@@ -26,8 +26,9 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
             <div>
                 <div class="highlight-header">
                     <span class="hl-range-label" style="font-size: 12px; font-weight: 700; color: var(--accent);"></span>
-                    <span class="score-badge" title="Nota da IA para o quanto o trecho é engraçado ou agitado">Nota ${escapeHtml(String(h.score ?? 85))}</span>
+                    <span class="score-badge" title="${h.score_ai !== undefined ? `Nota final = IA (${escapeHtml(String(h.score_ai))}) combinada com risada e caos de vozes (${escapeHtml(String(h.score_hype))})` : "Nota da IA para o quanto o trecho é engraçado ou agitado"}">Nota ${escapeHtml(String(h.score ?? 85))}</span>
                 </div>
+                ${h.score_ai !== undefined ? `<div class="highlight-scores">IA ${escapeHtml(String(h.score_ai))} · Risada e caos ${escapeHtml(String(h.score_hype))}</div>` : ""}
                 <div class="highlight-title">${escapeHtml(clipTitle)}</div>
                 <div class="highlight-reason">${escapeHtml(h.reason || "")}</div>
                 ${h.adjust_note ? `<div class="highlight-adjust ${h.needs_review ? "needs-review" : ""}">${h.needs_review ? "Revisar: " : "Ajustado à fala: "}${escapeHtml(h.adjust_note)}</div>` : ""}
