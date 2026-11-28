@@ -42,3 +42,9 @@ vozes_amigos/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Rust / Cargo / PGO
+/target/
+/pgo-data/
+Cargo.lock
+

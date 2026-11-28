@@ -1,0 +1,23 @@
+[package]
+name = "banido-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core configuration, security, SQLite WAL storage, diagnostics, and updater for Banido Studio AI."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rand.workspace = true
+chrono.workspace = true
+urlencoding.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
