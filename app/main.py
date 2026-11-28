@@ -1,4 +1,5 @@
 import secrets
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request
@@ -24,8 +25,10 @@ from app.worker_control import (
 from app import queue_manager
 from app import updater  # noqa: F401 (testes acessam app.main.updater)
 from app.routers import (
-    videos, processing, media, voices, ai, settings, setup, update, diagnostics, notify, queue
+    videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript,
+    backup as backup_routes, notify, queue,
 )
+from app import backup
 
 
 @asynccontextmanager
@@ -38,6 +41,8 @@ async def lifespan(app: FastAPI):
             print(f"[SEGURANÇA] {security.NO_PASSWORD_MESSAGE}", flush=True)
     AUDIO_NORM_CHECK_CACHE.clear()
     sync_obs_videos(OBS_RECORDINGS_DIR)
+    # F4: backup automático semanal, em segundo plano para não atrasar a abertura
+    threading.Thread(target=backup.maybe_auto_backup, daemon=True, name="auto-backup").start()
     queue_manager.start_scheduler()
     yield
     # No encerramento do servidor, mata workers ativos para não deixar processos zumbis
@@ -63,7 +68,7 @@ async def csrf_and_token_guard(request: Request, call_next):
         or (path in ("/api/settings", "/api/setup/check") and method == "GET")
         or (path.startswith("/api/models/") and method == "GET")
         # GETs que executam FFmpeg/rede ou gravam/expõem logs locais: também exigem o token
-        or (path.startswith(("/api/audio/preview/", "/api/speakers/preview/", "/api/update/", "/api/diagnostics/")) and method == "GET")
+        or (path.startswith(("/api/audio/preview/", "/api/video/preview/", "/api/speakers/preview/", "/api/update/", "/api/diagnostics/", "/api/backup/")) and method == "GET")
     )
     if needs_token:
         provided = request.headers.get("X-Banido-Token", "")
@@ -156,7 +161,7 @@ def get_index():
 
 
 # As rotas da API ficam em app/routers/. A ordem abaixo é a mesma de antes da separação.
-for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, notify, queue):
+for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes, notify, queue):
     app.include_router(_modulo.router)
 
 
