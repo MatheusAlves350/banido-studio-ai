@@ -8,7 +8,7 @@ from pathlib import Path
 
 ESTATICOS = Path(__file__).resolve().parent.parent / "app" / "static"
 ORDEM = ["api", "state", "utils", "events", "status", "videos",
-         "transcript", "speakers", "highlights", "processing", "history", "settings", "glossary",
+         "transcript", "transcript_edit", "speakers", "highlights", "processing", "history", "settings", "glossary",
          "clip_preview"]
 
 

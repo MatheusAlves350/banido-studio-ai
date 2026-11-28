@@ -57,11 +57,21 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/update/progress", "update_progress"),
     ("POST", "/api/update/restart", "update_restart"),
     ("GET", "/api/diagnostics/report", "get_diagnostic_report"),
+    ("GET", "/api/diagnostics/package", "download_problem_package"),
     ("GET", "/api/env-settings", "get_env_settings"),
     ("POST", "/api/env-settings/pick-folder", "env_settings_pick_folder"),
     ("POST", "/api/env-settings", "save_env_settings"),
     ("GET", "/api/glossary", "get_glossary"),
     ("POST", "/api/glossary", "update_glossary"),
+    ("POST", "/api/video/{video_id}/transcript/edit", "edit_transcript_segment"),
+    ("POST", "/api/video/{video_id}/transcript/undo", "undo_transcript_edit"),
+    ("GET", "/api/backup/status", "backup_status"),
+    ("POST", "/api/backup/create", "backup_create"),
+    ("POST", "/api/backup/download", "backup_download"),
+    ("POST", "/api/backup/preview", "backup_preview"),
+    ("POST", "/api/backup/import", "backup_import"),
+    ("POST", "/api/backup/restore", "backup_restore"),
+    ("POST", "/api/backup/folder", "backup_folder"),
 ]
 
 
