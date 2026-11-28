@@ -7,7 +7,6 @@ continua se um item falhar. Cada item passa pela verificação do C4 (feita dent
 
 O estado fica só em memória (uma fila por vez); se o servidor reiniciar, a fila recomeça do zero.
 """
-import shutil
 import threading
 import time
 import uuid
@@ -15,9 +14,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.config import CLIPS_DIR
+from app.disk_space import free_bytes
 from app.lossless_media import export_lossless_highlight
 
-# Margem de segurança de espaço livre (F8 vai substituir esta checagem simples pela dele).
+# Margem de segurança de espaço livre na pasta de cortes.
 MIN_FREE_BYTES = 1 * 1024 ** 3
 SIZE_SAFETY = 1.3
 
@@ -36,9 +36,8 @@ def estimate_batch_bytes(items: List[Dict[str, Any]], source_bytes: int, source_
 
 def check_free_space(needed_bytes: int, directory: Path = CLIPS_DIR) -> Optional[str]:
     """Devolve uma mensagem de erro se não houver espaço, ou None se estiver tudo bem."""
-    try:
-        free = shutil.disk_usage(directory).free
-    except OSError:
+    free = free_bytes(directory)
+    if free is None:
         return None  # não conseguiu medir: não bloqueia
     if free < needed_bytes + MIN_FREE_BYTES:
         return (
