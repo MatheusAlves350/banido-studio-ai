@@ -101,6 +101,22 @@ function renderTranscriptResults() {
             document.getElementById("manual-cut-end")?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
 
+        const idx = activeSegments.indexOf(seg);
+        const edit = getSegmentEdit(seg, idx);
+        if (edit) {
+            const mark = document.createElement("span");
+            mark.className = "tag-badge";
+            mark.textContent = "editada";
+            mark.title = `Original: ${edit.original}`;
+            row.querySelector(".transcript-row-text").appendChild(mark);
+        }
+        const btnEdit = document.createElement("button");
+        btnEdit.type = "button";
+        btnEdit.className = "btn-tweak";
+        btnEdit.textContent = "Editar";
+        btnEdit.title = "Corrigir o texto desta fala";
+        btnEdit.addEventListener("click", () => startTranscriptEdit(row, seg, idx));
+        actions.appendChild(btnEdit);
         actions.appendChild(btnSetStart);
         actions.appendChild(btnSetEnd);
         row.appendChild(actions);
