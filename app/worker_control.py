@@ -260,6 +260,9 @@ def reconcile_worker_processes():
                 else:
                     update_video_progress(vid, f"Erro: {err_msg}", 0.0, "error")
                 finish_job_record(job_id, status="error", last_step="Processo encerrado abruptamente", error_detail=err_msg)
+                # O worker caiu sem avisar ninguém: o aviso de falha sai daqui (E4).
+                from app.notifications import notify_job_end
+                notify_job_end(job_id)
             else:
                 job = get_job_by_id(job_id)
                 if job and job.get("status") == "running":

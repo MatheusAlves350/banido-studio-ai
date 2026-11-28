@@ -30,6 +30,7 @@ _SECRET_PATTERNS = [
     (re.compile(r"hf_[0-9A-Za-z]{10,}"), "<HF_TOKEN>"),
     (re.compile(r"sk-[0-9A-Za-z\-_]{16,}"), "<API_KEY>"),
     (re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]{12,}", re.IGNORECASE), r"\1<TOKEN>"),
+    (re.compile(r"https://(?:(?:canary|ptb)\.)?(?:discord|discordapp)\.com/api/webhooks/\d+/[\w-]+", re.IGNORECASE), "<DISCORD_WEBHOOK>"),
     (
         re.compile(
             r"((?:GOOGLE_API_KEY|NVIDIA_API_KEY|BANIDO_API_TOKEN|BANIDO_ACCESS_PASSWORD|X-Banido-Token)\s*[:=]\s*['\"]?)([^\s'\",;}{]+)",

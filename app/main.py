@@ -25,7 +25,7 @@ from app.worker_control import (
 from app import updater  # noqa: F401 (testes acessam app.main.updater)
 from app.routers import (
     videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript,
-    backup as backup_routes,
+    backup as backup_routes, notify,
 )
 from app import backup
 
@@ -159,7 +159,7 @@ def get_index():
 
 
 # As rotas da API ficam em app/routers/. A ordem abaixo é a mesma de antes da separação.
-for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes):
+for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes, notify):
     app.include_router(_modulo.router)
 
 

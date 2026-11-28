@@ -84,6 +84,9 @@ ROTAS_ESPERADAS = [
     ("POST", "/api/backup/import", "backup_import"),
     ("POST", "/api/backup/restore", "backup_restore"),
     ("POST", "/api/backup/folder", "backup_folder"),
+    ("GET", "/api/notify", "get_notify_settings"),
+    ("POST", "/api/notify/webhook", "save_notify_webhook"),
+    ("POST", "/api/notify/test", "notify_test"),
 ]
 
 

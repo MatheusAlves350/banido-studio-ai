@@ -498,6 +498,24 @@
                     </div>
                 </div>
 
+                <div class="form-group form-group-sep" id="notify-settings">
+                    <span class="form-label">Avisos ao terminar</span>
+                    <small>O Windows mostra um aviso quando o processamento termina ou falha, e o PC não entra em suspensão enquanto processa. Se quiser, o aviso também chega em um canal do Discord.</small>
+                    <div class="form-sub">
+                        <label for="input-discord-webhook">Link do webhook do Discord <span class="optional">(opcional)</span></label>
+                        <div class="key-row">
+                            <input type="password" id="input-discord-webhook" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+                            <button type="button" id="btn-save-discord-webhook" class="btn-secondary">Guardar</button>
+                            <button type="button" id="btn-clear-discord-webhook" class="btn-secondary" style="display: none;" title="Remover o link salvo">Remover</button>
+                        </div>
+                        <small id="discord-webhook-feedback">No Discord: Editar canal, Integrações, Webhooks, Novo webhook, Copiar URL.</small>
+                    </div>
+                    <div class="form-sub">
+                        <button type="button" id="btn-test-notify" class="btn-secondary">Enviar aviso de teste</button>
+                        <small id="notify-test-feedback"></small>
+                    </div>
+                </div>
+
                 <div class="form-group form-group-sep">
                     <label for="input-glossary">Glossário do grupo <span class="optional">(opcional)</span></label>
                     <textarea id="input-glossary" rows="5" placeholder="Um termo por linha, com a grafia certa. Ex.: nome de personagem, apelido, gíria do grupo"></textarea>
@@ -548,5 +566,6 @@
     <script src="/static/env-settings.js?v=1"></script>
     <script src="/static/diagnostics.js?v=1"></script>
     <script src="/static/backup.js?v=1"></script>
+    <script src="/static/avisos.js?v=1"></script>
 </body>
 </html>
