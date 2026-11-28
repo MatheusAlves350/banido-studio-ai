@@ -87,6 +87,13 @@ ROTAS_ESPERADAS = [
     ("GET", "/api/notify", "get_notify_settings"),
     ("POST", "/api/notify/webhook", "save_notify_webhook"),
     ("POST", "/api/notify/test", "notify_test"),
+    ("GET", "/api/queue", "get_queue"),
+    ("POST", "/api/queue/add", "add_queue"),
+    ("POST", "/api/queue/remove/{item_id}", "remove_queue_item"),
+    ("POST", "/api/queue/clear", "clear_queue_finished"),
+    ("POST", "/api/queue/cancel", "cancel_queue"),
+    ("POST", "/api/queue/start-now", "start_queue_now"),
+    ("POST", "/api/queue/cancel-power", "cancel_queue_power"),
 ]
 
 

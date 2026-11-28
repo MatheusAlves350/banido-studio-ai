@@ -22,10 +22,11 @@ from app.worker_control import (
     _cleanup_boot_log,
     kill_process_tree,
 )
+from app import queue_manager
 from app import updater  # noqa: F401 (testes acessam app.main.updater)
 from app.routers import (
     videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript,
-    backup as backup_routes, notify,
+    backup as backup_routes, notify, queue,
 )
 from app import backup
 
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI):
     sync_obs_videos(OBS_RECORDINGS_DIR)
     # F4: backup automático semanal, em segundo plano para não atrasar a abertura
     threading.Thread(target=backup.maybe_auto_backup, daemon=True, name="auto-backup").start()
+    queue_manager.start_scheduler()
     yield
     # No encerramento do servidor, mata workers ativos para não deixar processos zumbis
     for vid, info in list(ACTIVE_PROCESSES.items()):
@@ -159,7 +161,7 @@ def get_index():
 
 
 # As rotas da API ficam em app/routers/. A ordem abaixo é a mesma de antes da separação.
-for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes, notify):
+for _modulo in (videos, processing, media, voices, ai, settings, setup, update, diagnostics, env_settings, glossary, transcript, backup_routes, notify, queue):
     app.include_router(_modulo.router)
 
 
