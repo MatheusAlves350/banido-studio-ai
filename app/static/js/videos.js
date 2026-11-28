@@ -532,6 +532,7 @@ function renderCompletedVideo(v) {
     if (typeof refreshMetadataValidation === "function") refreshMetadataValidation(v.id);
     if (typeof refreshMosaicFiles === "function") refreshMosaicFiles(v.id);
     if (typeof renderThumbnails === "function") renderThumbnails(data.thumbnails || { frames: [], texts: [] });
+    if (typeof renderPublishPack === "function") renderPublishPack(data);
     const ytDesc = data.youtube_description || "";
     lastYoutubeTagsCsv = data.youtube_tags_csv || "";
     document.getElementById("yt-description-box").value = ytDesc;

@@ -891,3 +891,8 @@ button[hidden] { display: none !important; }
 .fila-power-global { bottom: 72px; }
 .fila-power[hidden] { display: none; }
 .fila-card input[type="time"] { color-scheme: dark; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-ctrl); padding: 3px 6px; }
+
+/* ---------- Pacote de publicação (E2) ---------- */
+.pack-block textarea, .pack-block input[type="text"] { width: 100%; box-sizing: border-box; }
+.pack-row { display: flex; gap: 8px; }
+.pack-row input { flex: 1; min-width: 0; }
