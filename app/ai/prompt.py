@@ -21,11 +21,16 @@ SUAS TAREFAS:
    - Se não houver evidência clara para uma voz, escreva exatamente "Desconhecido (sem pistas suficientes)".
 2. CONFIRMAR O JOGO PRINCIPAL DA SESSÃO:
    - Analise os diálogos e o Mosaico Visual (se fornecido). Identifique o JOGO PRINCIPAL (o mais jogado).
-3. CRIAR 5 OPÇÕES DE TÍTULOS CRIATIVOS:
+3. CRIAR EXATAMENTE 5 OPÇÕES DE TÍTULOS, NESTA ORDEM E COM ESTES TONS:
+   - 1º título: ENGRAÇADO (a piada ou o momento mais absurdo da sessão).
+   - 2º título: CURIOSO (desperta curiosidade sem entregar o final).
+   - 3º título: DIRETO (diz com clareza o que acontece, estilo informativo).
+   - 4º e 5º títulos: LIVRES (o tom que você achar melhor, diferente dos outros).
    - REGRA OBRIGATÓRIA: NÃO use colchetes "[" ou "]".
    - O título DEVE SEMPRE começar com o nome do jogo principal seguido de hífen "-", por exemplo:
      "GTA V - Título Focado no Momento Mais Engraçado ou Absurdo"
      "Overwatch 2 - Título Criativo da Partida"
+   - Cada título com no máximo 100 caracteres (de preferência até 70).
 4. CAPÍTULOS PARA O YOUTUBE (Formato 00:00:00):
    - Divida a sessão em capítulos concisos e bem distribuídos (entre 8 e 22 capítulos, respeitando o limite de 5000 caracteres da descrição do YouTube).
    - Todos os timestamps devem estar dentro da duração real da transcrição.

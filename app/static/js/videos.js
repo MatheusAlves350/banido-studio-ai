@@ -505,9 +505,14 @@ function renderCompletedVideo(v) {
     (data.title_options || []).forEach((t, i) => {
         const opt = document.createElement("label");
         opt.className = "title-option-item";
+        const styleLabel = (typeof TITLE_STYLE_LABELS !== "undefined" && TITLE_STYLE_LABELS[i]) || "";
         opt.innerHTML = `
             <input type="radio" name="title-option" value="${escapeHtml(t)}" ${i === 0 ? "checked" : ""}>
-            <span>${escapeHtml(t)}</span>
+            <span class="title-option-text">${styleLabel ? `<span class="title-style-tag">${escapeHtml(styleLabel)}</span> ` : ""}${escapeHtml(t)}</span>
+            <span class="title-option-actions">
+                <button type="button" class="btn-secondary btn-sm" data-title-action="shorter" data-title-index="${i}" title="Pede à IA uma versão mais curta deste título">Mais curto</button>
+                <button type="button" class="btn-secondary btn-sm" data-title-action="other_tone" data-title-index="${i}" title="Pede à IA um título novo, com outro tom">Outro tom</button>
+            </span>
         `;
         opt.querySelector("input").addEventListener("change", () => {
             document.getElementById("custom-title-input").value = t;
