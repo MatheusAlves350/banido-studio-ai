@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from xml.sax.saxutils import escape as xml_escape
+from app.clip_verify import verify_clip
 from app.config import CLIPS_DIR
 from app.audio_pipeline import (
     YOUTUBE_AUDIO_NORM_TAG,
@@ -161,10 +162,12 @@ def export_lossless_highlight(
     start_sec = max(0.0, float(start_sec))
 
     already_normalized = False
+    source_duration = 0.0
     try:
         info = inspect_mkv_audio_norm(mkv_path)
         stream_count = info["audio_streams"]
         already_normalized = info["is_normalized"]
+        source_duration = float(info.get("duration") or 0.0)
     except Exception:
         stream_count = 1
 
@@ -242,12 +245,22 @@ def export_lossless_highlight(
 
     try:
         subprocess.run(cmd, capture_output=True, check=True)
+        # C4: conferência automática (nunca apaga o corte; só informa verde/amarelo/vermelho)
+        expected_dur = dur
+        if source_duration > 0:
+            expected_dur = max(1.0, min(start_sec + dur, source_duration) - start_sec)
+        expected_tracks = max(1, stream_count) if keep_all_tracks else 1
+        try:
+            verification = verify_clip(output_clip_path, expected_dur, expected_tracks)
+        except Exception as e:  # a conferência jamais pode derrubar uma exportação que deu certo
+            verification = {"status": "warn", "message": f"Não foi possível conferir o corte automaticamente: {e}"}
         return {
             "success": True,
             "clip_path": str(output_clip_path),
             "filename": output_clip_path.name,
             "duration": dur,
             "exact_cut": exact_cut,
+            "verification": verification,
         }
     except subprocess.CalledProcessError as e:
         return {

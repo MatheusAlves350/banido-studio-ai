@@ -13,3 +13,12 @@
 .setup-feedback.is-info { color: var(--text-secondary); }
 .setup-footer { display: flex; justify-content: space-between; gap: 10px; }
 @media (max-width: 560px) { .setup-row { flex-direction: column; } }
+
+/* Configurações avançadas (edição do .env pelo painel). */
+.env-card { max-width: 640px; }
+.env-card .modal-body { max-height: 70vh; overflow-y: auto; }
+.env-group { margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 14px; }
+.env-group h4, .env-group summary { margin: 0 0 10px; font-size: 14px; font-weight: 600; cursor: default; }
+.env-group summary { cursor: pointer; }
+.env-card select { width: 100%; box-sizing: border-box; }
+.env-field { margin-bottom: 14px; }

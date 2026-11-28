@@ -81,5 +81,6 @@ class LLMProvider(Protocol):
         mosaic_jpg_path: Optional[Path] = None,
         duration_sec: Optional[float] = None,
         progress_callback: Optional[Callable[[str, float], None]] = None,
+        extra_mosaic_paths: Optional[list] = None,
     ) -> Dict[str, Any]:
         ...
