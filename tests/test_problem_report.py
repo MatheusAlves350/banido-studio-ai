@@ -130,3 +130,18 @@ def test_endpoint_do_zip_exige_token_e_baixa_o_arquivo(ambiente):
     assert "attachment" in r.headers["content-disposition"]
     assert "Joaozinho" not in "\n".join(_conteudo(r.content).values())
     assert datetime.now().strftime("%Y%m%d") in r.headers["content-disposition"]
+
+
+def test_falas_com_carimbo_de_hora_sao_omitidas(ambiente):
+    log_txt = (
+        "[15:24:41] [WHISPER] Inicio\n"
+        "[15:24:49] [FALA #0001] [00:00:04 -> 00:00:10] [Discord]: conversa privada do grupo\n"
+        "[15:24:49] [FALA #0002] [00:00:10 -> 00:00:14] [Discord]: outra fala secreta\n"
+        "[15:24:50] [WHISPER] Fim\n"
+    )
+    limpo = pr.clean(log_txt)
+    assert "conversa privada" not in limpo
+    assert "outra fala secreta" not in limpo
+    assert "2 fala(s) transcrita(s) omitida(s)" in limpo
+    assert pr.scan_for_leaks({"logs/job_1.log": log_txt}) != []
+    assert pr.scan_for_leaks({"logs/job_1.log": limpo}) == []
