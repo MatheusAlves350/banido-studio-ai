@@ -8,11 +8,13 @@ async function loadGlossaryEditor() {
     if (!box) return;
     try {
         const res = await fetch("/api/glossary");
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
         box.value = (data.terms || []).join("\n");
         if (feedback) feedback.textContent = `${data.count} de ${data.max_terms} termos.`;
     } catch (e) {
         console.error("Erro ao carregar o glossário:", e);
+        if (feedback) feedback.textContent = "Erro ao carregar o glossário: " + e.message;
     }
 }
 
