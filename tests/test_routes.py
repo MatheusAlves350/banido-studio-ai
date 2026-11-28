@@ -61,6 +61,8 @@ ROTAS_ESPERADAS = [
     ("POST", "/api/env-settings", "save_env_settings"),
     ("GET", "/api/glossary", "get_glossary"),
     ("POST", "/api/glossary", "update_glossary"),
+    ("POST", "/api/video/{video_id}/transcript/edit", "edit_transcript_segment"),
+    ("POST", "/api/video/{video_id}/transcript/undo", "undo_transcript_edit"),
     ("GET", "/api/backup/status", "backup_status"),
     ("POST", "/api/backup/create", "backup_create"),
     ("POST", "/api/backup/download", "backup_download"),

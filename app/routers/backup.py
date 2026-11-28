@@ -6,7 +6,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app import backup
-from app.worker_control import ACTIVE_PROCESSES, reconcile_worker_processes
+from app.worker_control import (
+    ACTIVE_PROCESSES, AUDIO_NORM_CHECK_CACHE, SPEAKER_CONFIRM_LOCK, reconcile_worker_processes,
+)
 
 router = APIRouter()
 
@@ -91,8 +93,10 @@ def backup_restore(req: BackupName):
     reconcile_worker_processes()
     if ACTIVE_PROCESSES:
         raise HTTPException(status_code=409, detail="Há um processamento em andamento. Aguarde ou cancele antes de restaurar.")
-    path = _run(backup.resolve_backup_file, req.name)
-    result = _run(backup.restore_backup, path)
+    with SPEAKER_CONFIRM_LOCK:
+        path = _run(backup.resolve_backup_file, req.name)
+        result = _run(backup.restore_backup, path)
+        AUDIO_NORM_CHECK_CACHE.clear()
     result["success"] = True
     return result
 
