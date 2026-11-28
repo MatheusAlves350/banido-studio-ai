@@ -46,6 +46,9 @@ function setupEventListeners() {
         btnManualCut.addEventListener("click", exportManualCut);
     }
 
+    setupBatchCutBar();
+    document.getElementById("btn-manual-cut-preview")?.addEventListener("click", previewManualCut);
+
     const btnToggleTranscript = document.getElementById("btn-toggle-transcript");
     if (btnToggleTranscript) {
         btnToggleTranscript.addEventListener("click", () => {
@@ -158,6 +161,31 @@ function setupEventListeners() {
         navigator.clipboard.writeText(text).then(() => {
             alert("Descrição do YouTube copiada com sucesso!");
         });
+    });
+
+    // C5: capítulos prontos para colar na descrição do YouTube
+    document.getElementById("btn-copy-chapters")?.addEventListener("click", async () => {
+        if (!activeVideoId) return;
+        try {
+            const res = await fetch(`/api/chapters/text/${activeVideoId}`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+            await navigator.clipboard.writeText(data.text);
+            alert("Capítulos copiados." + (data.warning ? `\n\nAtenção: ${data.warning}` : ""));
+        } catch (e) {
+            alert("Não foi possível copiar os capítulos: " + e.message);
+        }
+    });
+    document.getElementById("btn-save-chapters-txt")?.addEventListener("click", async () => {
+        if (!activeVideoId) return;
+        try {
+            const res = await fetch(`/api/chapters/export/${activeVideoId}`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+            alert(`Arquivo salvo em:\n${data.path}` + (data.warning ? `\n\nAtenção: ${data.warning}` : ""));
+        } catch (e) {
+            alert("Não foi possível salvar os capítulos: " + e.message);
+        }
     });
 
     // Claude Web

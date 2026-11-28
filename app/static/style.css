@@ -800,3 +800,28 @@ button:disabled { cursor: default; opacity: 0.5; }
     .history-modal-body { grid-template-columns: 1fr; }
     .history-list-pane { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line-soft); }
 }
+
+/* Editor de legenda */
+.transcript-edit-box { flex: 1; display: grid; gap: 6px; }
+.transcript-edit-box textarea { width: 100%; min-height: 56px; }
+.transcript-edit-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ---------- C3: lote de cortes ---------- */
+.batch-cut-list { margin: 6px 0 12px; padding-left: 18px; font-size: 13px; }
+.batch-cut-list li { margin-bottom: 3px; }
+
+/* ---------- C1: pré-visualização do corte ---------- */
+.clip-preview-card { width: min(760px, 100%); }
+.clip-preview-video { width: 100%; max-height: 52vh; background: #000; border-radius: 6px; }
+.clip-preview-range { margin: 10px 0 6px; font-weight: 700; font-size: 13px; }
+.clip-preview-timeline {
+    position: relative;
+    height: 22px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.clip-preview-speech { position: absolute; top: 4px; height: 14px; background: var(--muted); opacity: 0.55; border-radius: 2px; }
+.clip-preview-marker { position: absolute; top: 0; height: 100%; background: var(--accent); }
+.clip-preview-footer { gap: 8px; }
