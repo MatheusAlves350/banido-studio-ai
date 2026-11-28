@@ -1,6 +1,7 @@
 function renderHighlights(videoId, highlights, totalDurationSec = 0) {
     const grid = document.getElementById("highlights-grid");
     grid.innerHTML = "";
+    resetBatchCards();
 
     if (highlights.length === 0) {
         grid.innerHTML = `<p style="color: var(--text-secondary);">Nenhum melhor momento identificado nesta sessão.</p>`;
@@ -129,6 +130,17 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
         previewWrap.appendChild(btnPrev);
         previewWrap.appendChild(audioPrev);
         card.appendChild(previewWrap);
+
+        // C3: seleção para exportar em lote
+        const batchLabel = document.createElement("label");
+        batchLabel.className = "check-row";
+        const batchChk = document.createElement("input");
+        batchChk.type = "checkbox";
+        const batchTxt = document.createElement("span");
+        batchTxt.textContent = "Incluir no lote";
+        batchLabel.append(batchChk, batchTxt);
+        card.appendChild(batchLabel);
+        registerBatchCard(batchChk, () => ({ startSec, endSec }), clipTitle);
 
         const btn = document.createElement("button");
         btn.className = "btn-cut";
