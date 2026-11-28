@@ -359,6 +359,8 @@ def launch_worker_subprocess(
             effective_model = get_setting("google_model", DEFAULT_GOOGLE_MODEL)
         elif engine == "nvidia":
             effective_model = get_setting("nvidia_model", DEFAULT_NVIDIA_MODEL)
+        elif engine == "ollama":
+            effective_model = get_setting("ollama_model", "") or "ollama-local"
         else:
             effective_model = "claude-web-manual"
 
