@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from app import security
+from app import cut_batch, security
 
 from app.config import (
     TEMP_DIR
@@ -13,9 +13,11 @@ from app.config import (
 from app.database import (
     get_video_by_id, update_video_paths_after_rename
 )
+from app.ai.youtube import build_chapters_text
 from app.lossless_media import (
     rename_mkv_and_srt, export_lossless_highlight, embed_chapters_into_mkv
 )
+from app.clip_preview import build_preview_proxy, clamp_window
 from app.voice_bank import (
     extract_highlight_preview_wav
 )
@@ -82,6 +84,26 @@ def preview_highlight_audio(video_id: int, start: float = 0.0, end: float = 15.0
     return FileResponse(str(preview_wav), media_type="audio/wav", filename=preview_wav.name)
 
 
+@router.get("/api/video/preview/{video_id}")
+def preview_clip_video(video_id: int, start: float = 0.0, end: float = 15.0):
+    """C1: prévia leve (360p, até 2 min) do trecho para conferir início e fim antes de exportar."""
+    video = get_video_by_id(video_id, include_data=False)
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+    mkv_path = Path(video["file_path"])
+    if not mkv_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo MKV não encontrado no disco")
+
+    s, e = clamp_window(start, end, float(video.get("duration_sec") or 0.0))
+    preview_dir = TEMP_DIR / "previews"
+    preview_mp4 = preview_dir / f"clip_v{video_id}_{int(video.get('mtime') or 0)}_{int(s * 10)}_{int(e * 10)}.mp4"
+    if not preview_mp4.exists() or preview_mp4.stat().st_size <= 1000:
+        if not build_preview_proxy(mkv_path, s, e, preview_mp4):
+            raise HTTPException(status_code=500, detail="Não foi possível gerar a prévia do trecho.")
+        security.prune_directory(preview_dir)
+    return FileResponse(str(preview_mp4), media_type="video/mp4", filename=preview_mp4.name)
+
+
 class CutRequest(BaseModel):
     video_id: int
     start_sec: float
@@ -111,6 +133,65 @@ def cut_highlight(req: CutRequest):
     return res
 
 
+class CutItem(BaseModel):
+    start_sec: float
+    end_sec: float
+    title: str = "Corte"
+
+
+class CutBatchRequest(BaseModel):
+    video_id: int
+    items: list[CutItem]
+    boost_discord: bool = True
+    keep_all_tracks: bool = False
+    exact_cut: bool = False
+
+
+@router.post("/api/cut/batch")
+def start_cut_batch(req: CutBatchRequest):
+    """C3: exporta vários cortes em fila (um por vez, em ordem cronológica)."""
+    _ensure_not_busy(req.video_id, "exportar cortes deste vídeo")
+    video = get_video_by_id(req.video_id, include_data=False)
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+    mkv_path = Path(video["file_path"])
+    if not mkv_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo MKV não encontrado no disco")
+    try:
+        job_id = cut_batch.start_batch(
+            req.video_id, mkv_path, [i.model_dump() for i in req.items],
+            options={
+                "boost_discord": req.boost_discord,
+                "keep_all_tracks": req.keep_all_tracks,
+                "exact_cut": req.exact_cut,
+            },
+            busy_check=lambda: _ensure_not_busy(req.video_id, "exportar cortes deste vídeo"),
+            source_bytes=int(video.get("file_size_bytes") or 0),
+            source_duration=float(video.get("duration_sec") or 0.0),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return cut_batch.get_job(job_id)
+
+
+@router.get("/api/cut/batch/{job_id}")
+def get_cut_batch(job_id: str):
+    job = cut_batch.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Fila de cortes não encontrada")
+    return job
+
+
+@router.post("/api/cut/batch/{job_id}/cancel")
+def cancel_cut_batch(job_id: str):
+    """Cancela os itens que ainda não começaram (o corte em andamento termina)."""
+    if not cut_batch.cancel_job(job_id):
+        raise HTTPException(status_code=404, detail="Nenhuma fila em andamento com este código")
+    return {"success": True}
+
+
 class EmbedChaptersRequest(BaseModel):
     mode: Optional[str] = "both"  # "both" | "highlights" | "chapters"
 
@@ -137,3 +218,35 @@ def embed_chapters(video_id: int, req: EmbedChaptersRequest):
     if not res.get("success"):
         raise HTTPException(status_code=500, detail=res.get("error", "Erro ao embutir capítulos no MKV"))
     return res
+
+
+def _chapters_text_for_video(video_id: int):
+    video = get_video_by_id(video_id)
+    if not video or not video.get("data") or not video["data"].get("chapters"):
+        raise HTTPException(status_code=404, detail="Esta gravação ainda não tem capítulos. Analise o vídeo com a IA primeiro.")
+    text = build_chapters_text(video["data"]["chapters"], duration_sec=video.get("duration_sec"))
+    count = len(text.splitlines())
+    warning = None
+    if count < 3:
+        warning = "O YouTube só cria capítulos com 3 ou mais marcações; esta lista tem menos que isso."
+    return video, text, count, warning
+
+
+@router.get("/api/chapters/text/{video_id}")
+def get_chapters_text(video_id: int):
+    """C5: capítulos em texto puro para o botão "Copiar capítulos"."""
+    _, text, count, warning = _chapters_text_for_video(video_id)
+    return {"text": text, "count": count, "warning": warning}
+
+
+@router.post("/api/chapters/export/{video_id}")
+def export_chapters_txt(video_id: int):
+    """C5: salva `<nome da gravação> - capitulos.txt` ao lado do MKV (sobrescreve a versão anterior)."""
+    video, text, count, warning = _chapters_text_for_video(video_id)
+    mkv_path = Path(video["file_path"])
+    out_path = mkv_path.with_name(f"{mkv_path.stem} - capitulos.txt")
+    try:
+        out_path.write_text(text + "\n", encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Não foi possível salvar o arquivo de capítulos: {e}")
+    return {"success": True, "path": str(out_path), "filename": out_path.name, "count": count, "warning": warning}
