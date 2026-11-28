@@ -12,7 +12,8 @@ from typing import Optional
 # Garantir UTF-8 no Windows
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
-from app.config import DATABASE_DIR, TEMP_DIR, LEGACY_TEMP_DIR, OBS_RECORDINGS_DIR, HOST_SPEAKER_NAME, GROUP_NAME
+from app import crash_capture
+from app.config import DATABASE_DIR, LOGS_DIR, TEMP_DIR, LEGACY_TEMP_DIR, OBS_RECORDINGS_DIR, HOST_SPEAKER_NAME, GROUP_NAME
 from app.database import (
     get_video_by_id, get_all_videos, get_job_by_id, update_video_progress,
     update_job_step, finish_job_record, save_video_result,
@@ -148,14 +149,17 @@ def run_worker(
     ):
         temp_job_dir = legacy_job_dir
     job_succeeded = False
+    handled_failure = False  # erro tratado (o traceback já está no log): dispensa o relatório de queda
 
     def report(msg: str, pct: float):
+        crash_capture.set_stage(msg)
         if video_id > 0:
             update_video_progress(video_id, msg, pct, "processing")
         update_job_step(job_id, msg, pct)
 
     try:
         t_start = time.time()
+        crash_capture.start(job_id, LOGS_DIR)  # F1: caixa-preta para investigar quedas
         from app.game_guard import lower_current_process_priority
         prio_ok = lower_current_process_priority()
         prio_note = " | Prioridade CPU: abaixo do normal" if prio_ok else ""
@@ -353,6 +357,18 @@ def run_worker(
                 separate_tracks=separate_tracks,
             )
             segments = trans_res["segments"]
+            try:  # reaplica correções manuais da legenda (A6) feitas numa transcrição anterior
+                from app.transcription.edits import load_edits, reapply_edits, save_edits
+                from app.transcription.srt import export_srt_file as _export_srt
+                saved_edits = load_edits(video_id)
+                if saved_edits:
+                    applied, updated_edits = reapply_edits(segments, saved_edits)
+                    if updated_edits != saved_edits:
+                        save_edits(video_id, updated_edits)
+                    if applied:
+                        _export_srt(segments, srt_path)
+            except Exception as e:
+                print(f"[LEGENDA] Não foi possível reaplicar as correções manuais: {e}", flush=True)
             hype_scores = trans_res["hype_scores"]
             speaker_samples = trans_res["speaker_samples"]
             duration_sec = trans_res["duration"]
@@ -569,6 +585,7 @@ def run_worker(
         print("========================================================================", flush=True)
 
     except Exception as e:
+        handled_failure = True
         tb = traceback.format_exc()
         print(f"\n❌ [ERRO FATAL] {e}\n{tb}", flush=True)
         err_short = f"Erro: {str(e)}"
@@ -587,6 +604,7 @@ def run_worker(
         finish_job_record(job_id, status="error", last_step="Falhou com erro", error_detail=str(e))
         sys.exit(1)
     finally:
+        crash_capture.stop(job_succeeded or handled_failure)
         if job_succeeded and temp_job_dir.exists():
             try:
                 shutil.rmtree(temp_job_dir, ignore_errors=True)

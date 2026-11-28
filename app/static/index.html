@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=6">
     <link rel="stylesheet" href="/static/updater.css?v=2">
-    <link rel="stylesheet" href="/static/setup.css?v=1">
+    <link rel="stylesheet" href="/static/setup.css?v=2">
 </head>
 <body>
     <div class="app-layout">
@@ -304,6 +304,7 @@
                                     <input type="text" id="manual-cut-end" placeholder="Fim, ex.: 00:13:45" title="Tempo final (HH:MM:SS ou segundos)">
                                     <label class="sr-only" for="manual-cut-title">Nome do corte</label>
                                     <input type="text" id="manual-cut-title" placeholder="Nome do corte" class="grow">
+                                    <button type="button" id="btn-manual-cut-preview" class="btn-secondary btn-sm">Pré-visualizar</button>
                                     <button type="button" id="btn-manual-cut-export" class="btn-secondary btn-sm">Exportar corte</button>
                                 </div>
                                 <div class="cut-options">
@@ -319,6 +320,14 @@
                                 </label>
                                 <span class="field-hint">Sem o corte exato, o corte começa no quadro-chave anterior e pode ter 1 ou 2 segundos a mais.</span>
                                 </div>
+                                <div class="manual-cut-bar batch-cut-bar">
+                                    <span class="manual-cut-label">Lote</span>
+                                    <button type="button" id="btn-batch-select-all" class="btn-secondary btn-sm">Selecionar todos</button>
+                                    <button type="button" id="btn-batch-export" class="btn-secondary btn-sm" disabled>Exportar selecionados (0)</button>
+                                    <button type="button" id="btn-batch-cancel" class="btn-secondary btn-sm" hidden>Cancelar fila</button>
+                                </div>
+                                <p class="field-hint" id="batch-cut-status" role="status"></p>
+                                <ul class="batch-cut-list" id="batch-cut-list"></ul>
                                 <div class="highlights-grid" id="highlights-grid"></div>
                             </section>
                         </div>
@@ -334,6 +343,8 @@
                                 <div class="yt-actions">
                                     <button id="btn-copy-yt-desc" class="btn-primary">Copiar descrição</button>
                                     <button id="btn-copy-yt-tags" class="btn-secondary">Copiar tags</button>
+                                    <button id="btn-copy-chapters" class="btn-secondary">Copiar capítulos</button>
+                                    <button id="btn-save-chapters-txt" class="btn-secondary" title="Salva um arquivo .txt com os capítulos ao lado da gravação">Salvar capítulos em .txt</button>
                                 </div>
                                 <div id="yt-validation" class="validation-box" role="status" hidden></div>
                                 <label class="sr-only" for="yt-description-box">Descrição do YouTube</label>
@@ -358,7 +369,8 @@
                                     <h3>Procurar na legenda</h3>
                                     <span class="tag-badge" id="transcript-count-badge">0 falas</span>
                                 </div>
-                                <p class="section-desc">Ache aquela frase ou piada e veja em que momento do vídeo ela aconteceu. O arquivo .srt fica ao lado do vídeo.</p>
+                                <p class="section-desc">Ache aquela frase ou piada e veja em que momento do vídeo ela aconteceu. Para corrigir uma palavra, clique em Editar na fala: o arquivo .srt ao lado do vídeo é refeito e dá para desfazer.</p>
+                                <div id="glossary-suggestions" class="field-hint" style="display: none;"></div>
                                 <button type="button" id="btn-toggle-transcript" class="btn-secondary btn-sm">Abrir busca</button>
                                 <div id="transcript-explorer-body" style="display: none; margin-top: 14px;">
                                     <div class="transcript-search-bar">
@@ -480,9 +492,18 @@
                 </div>
 
                 <div class="form-group form-group-sep">
+                    <label for="input-glossary">Glossário do grupo <span class="optional">(opcional)</span></label>
+                    <textarea id="input-glossary" rows="5" placeholder="Um termo por linha, com a grafia certa. Ex.: nome de personagem, apelido, gíria do grupo"></textarea>
+                    <div class="key-row">
+                        <small id="glossary-feedback">Ajuda o Whisper a escrever esses nomes certo na próxima transcrição.</small>
+                        <button type="button" id="btn-save-glossary" class="btn-secondary">Salvar glossário</button>
+                    </div>
+                </div>
+
+                <div class="form-group form-group-sep">
                     <span class="form-label">Pastas usadas</span>
                     <div id="instance-paths-info" class="paths-info">Carregando...</div>
-                    <small>Para trocar pastas, o seu nome ou o nome do grupo, use o botão de configuração inicial logo abaixo. Quem preferir pode editar o arquivo <code>.env</code> na pasta do programa (há um modelo em <code>.env.example</code>) e abrir o Banido Studio de novo.</small>
+                    <small>Para trocar pastas, seu nome, o modelo de transcrição e outras opções, use o botão “Configurações avançadas” logo abaixo. Não precisa editar nenhum arquivo.</small>
                 </div>
             </div>
             <div class="modal-footer">
@@ -500,11 +521,15 @@
     <script src="/static/js/status.js?v=1"></script>
     <script src="/static/js/videos.js?v=1"></script>
     <script src="/static/js/transcript.js?v=1"></script>
+    <script src="/static/js/transcript_edit.js?v=1"></script>
     <script src="/static/js/speakers.js?v=1"></script>
     <script src="/static/js/highlights.js?v=1"></script>
     <script src="/static/js/processing.js?v=1"></script>
     <script src="/static/js/history.js?v=1"></script>
     <script src="/static/js/settings.js?v=1"></script>
+    <script src="/static/js/glossary.js?v=1"></script>
+    <script src="/static/js/cut_batch.js?v=1"></script>
+    <script src="/static/js/clip_preview.js?v=1"></script>
     <script src="/static/js/tokens.js?v=1"></script>
     <script src="/static/js/validation.js?v=1"></script>
     <script src="/static/js/titles.js?v=1"></script>
@@ -513,6 +538,8 @@
     <script src="/static/guide.js?v=1"></script>
     <script src="/static/updater.js?v=2"></script>
     <script src="/static/setup.js?v=1"></script>
+    <script src="/static/env-settings.js?v=1"></script>
     <script src="/static/diagnostics.js?v=1"></script>
+    <script src="/static/backup.js?v=1"></script>
 </body>
 </html>
