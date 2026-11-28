@@ -310,7 +310,8 @@ def launch_worker_subprocess(
     # F8: confere o espaço em disco antes de começar (a normalização avulsa já faz a própria checagem)
     space_warning = ""
     if mode == "full":
-        space = check_process_space(video, bool(normalize_audio), TEMP_DIR, OBS_RECORDINGS_DIR)
+        will_normalize = bool(normalize_audio) and not video.get("audio_normalized")
+        space = check_process_space(video, will_normalize, TEMP_DIR, OBS_RECORDINGS_DIR)
         if space["level"] == SPACE_BLOCKED:
             raise HTTPException(status_code=507, detail=space["message"])
         if space["level"] == SPACE_WARNING:

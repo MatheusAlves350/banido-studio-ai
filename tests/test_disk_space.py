@@ -93,3 +93,23 @@ def test_simulacao_de_espaco_livre_pelo_ambiente(monkeypatch, tmp_path):
     assert ds.free_bytes(tmp_path) == int(2.5 * GB)
     monkeypatch.setenv("BANIDO_SIMULAR_ESPACO_LIVRE_GB", "abc")
     assert ds.free_bytes(tmp_path) > 0
+
+
+def test_video_ja_normalizado_nao_conta_espaco_do_mkv(monkeypatch, tmp_path):
+    import app.worker_control as wc
+
+    seen = {}
+    monkeypatch.setattr(wc, "reconcile_worker_processes", lambda: None)
+    monkeypatch.setattr(
+        wc, "get_video_by_id",
+        lambda vid, include_data=True: {"id": vid, "filename": "a.mkv", "audio_normalized": 1, **_video(gb=40)},
+    )
+
+    def fake_check(video, norm, temp_dir, rec_dir):
+        seen["norm"] = norm
+        return {"level": ds.BLOCKED, "message": "Espaço insuficiente"}
+
+    monkeypatch.setattr(wc, "check_process_space", fake_check)
+    with pytest.raises(Exception):
+        wc.launch_worker_subprocess(7, "full", "", "gemini", "", normalize_audio=True)
+    assert seen["norm"] is False
