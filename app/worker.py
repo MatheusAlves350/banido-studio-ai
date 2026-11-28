@@ -353,6 +353,18 @@ def run_worker(
                 separate_tracks=separate_tracks,
             )
             segments = trans_res["segments"]
+            try:  # reaplica correções manuais da legenda (A6) feitas numa transcrição anterior
+                from app.transcription.edits import load_edits, reapply_edits, save_edits
+                from app.transcription.srt import export_srt_file as _export_srt
+                saved_edits = load_edits(video_id)
+                if saved_edits:
+                    applied, updated_edits = reapply_edits(segments, saved_edits)
+                    if updated_edits != saved_edits:
+                        save_edits(video_id, updated_edits)
+                    if applied:
+                        _export_srt(segments, srt_path)
+            except Exception as e:
+                print(f"[LEGENDA] Não foi possível reaplicar as correções manuais: {e}", flush=True)
             hype_scores = trans_res["hype_scores"]
             speaker_samples = trans_res["speaker_samples"]
             duration_sec = trans_res["duration"]

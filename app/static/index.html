@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=6">
     <link rel="stylesheet" href="/static/updater.css?v=2">
-    <link rel="stylesheet" href="/static/setup.css?v=1">
+    <link rel="stylesheet" href="/static/setup.css?v=2">
 </head>
 <body>
     <div class="app-layout">
@@ -345,7 +345,8 @@
                                     <h3>Procurar na legenda</h3>
                                     <span class="tag-badge" id="transcript-count-badge">0 falas</span>
                                 </div>
-                                <p class="section-desc">Ache aquela frase ou piada e veja em que momento do vídeo ela aconteceu. O arquivo .srt fica ao lado do vídeo.</p>
+                                <p class="section-desc">Ache aquela frase ou piada e veja em que momento do vídeo ela aconteceu. Para corrigir uma palavra, clique em Editar na fala: o arquivo .srt ao lado do vídeo é refeito e dá para desfazer.</p>
+                                <div id="glossary-suggestions" class="field-hint" style="display: none;"></div>
                                 <button type="button" id="btn-toggle-transcript" class="btn-secondary btn-sm">Abrir busca</button>
                                 <div id="transcript-explorer-body" style="display: none; margin-top: 14px;">
                                     <div class="transcript-search-bar">
@@ -463,9 +464,18 @@
                 </div>
 
                 <div class="form-group form-group-sep">
+                    <label for="input-glossary">Glossário do grupo <span class="optional">(opcional)</span></label>
+                    <textarea id="input-glossary" rows="5" placeholder="Um termo por linha, com a grafia certa. Ex.: nome de personagem, apelido, gíria do grupo"></textarea>
+                    <div class="key-row">
+                        <small id="glossary-feedback">Ajuda o Whisper a escrever esses nomes certo na próxima transcrição.</small>
+                        <button type="button" id="btn-save-glossary" class="btn-secondary">Salvar glossário</button>
+                    </div>
+                </div>
+
+                <div class="form-group form-group-sep">
                     <span class="form-label">Pastas usadas</span>
                     <div id="instance-paths-info" class="paths-info">Carregando...</div>
-                    <small>Para trocar pastas, o seu nome ou o nome do grupo, use o botão de configuração inicial logo abaixo. Quem preferir pode editar o arquivo <code>.env</code> na pasta do programa (há um modelo em <code>.env.example</code>) e abrir o Banido Studio de novo.</small>
+                    <small>Para trocar pastas, seu nome, o modelo de transcrição e outras opções, use o botão “Configurações avançadas” logo abaixo. Não precisa editar nenhum arquivo.</small>
                 </div>
             </div>
             <div class="modal-footer">
@@ -483,14 +493,17 @@
     <script src="/static/js/status.js?v=1"></script>
     <script src="/static/js/videos.js?v=1"></script>
     <script src="/static/js/transcript.js?v=1"></script>
+    <script src="/static/js/transcript_edit.js?v=1"></script>
     <script src="/static/js/speakers.js?v=1"></script>
     <script src="/static/js/highlights.js?v=1"></script>
     <script src="/static/js/processing.js?v=1"></script>
     <script src="/static/js/history.js?v=1"></script>
     <script src="/static/js/settings.js?v=1"></script>
+    <script src="/static/js/glossary.js?v=1"></script>
     <script src="/static/guide.js?v=1"></script>
     <script src="/static/updater.js?v=2"></script>
     <script src="/static/setup.js?v=1"></script>
+    <script src="/static/env-settings.js?v=1"></script>
     <script src="/static/diagnostics.js?v=1"></script>
 </body>
 </html>
