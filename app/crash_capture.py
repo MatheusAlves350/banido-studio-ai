@@ -110,8 +110,13 @@ def ram_mb() -> Dict[str, Optional[int]]:
                             ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
             pmc = PMC()
             pmc.cb = ctypes.sizeof(PMC)
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb):
+            get_cur = ctypes.windll.kernel32.GetCurrentProcess
+            get_cur.restype = ctypes.c_void_p
+            get_mem = ctypes.windll.psapi.GetProcessMemoryInfo
+            get_mem.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+            get_mem.restype = ctypes.c_int
+            handle = get_cur()
+            if get_mem(handle, ctypes.byref(pmc), pmc.cb):
                 proc = int(pmc.WorkingSetSize // (1024 * 1024))
         else:
             for line in Path("/proc/meminfo").read_text().splitlines():
