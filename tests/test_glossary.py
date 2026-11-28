@@ -25,6 +25,12 @@ def test_salvar_e_carregar(tmp_path):
     assert not arq.with_suffix(".tmp").exists()
 
 
+def test_carregar_ignora_bom_do_bloco_de_notas(tmp_path):
+    arq = tmp_path / "glossario.txt"
+    arq.write_bytes("\ufeffBanido\r\nGaules\r\n".encode("utf-8"))
+    assert glossary.load_glossary(arq) == ["Banido", "Gaules"]
+
+
 def test_prompt_inclui_glossario(monkeypatch):
     monkeypatch.setattr("app.transcription.prompt.list_known_voice_names", lambda exclude_host=False: [])
     p = build_whisper_initial_prompt(manual_game="Valorant", glossary_terms=["Jett", "Sova"])

@@ -35,7 +35,7 @@ def parse_glossary_text(text: str) -> List[str]:
 def load_glossary(path: Optional[Path] = None) -> List[str]:
     path = path or GLOSSARY_PATH
     try:
-        return parse_glossary_text(path.read_text(encoding="utf-8"))
+        return parse_glossary_text(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError):
         return []
 
