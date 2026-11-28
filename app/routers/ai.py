@@ -17,6 +17,19 @@ from app.worker_control import (
 router = APIRouter()
 
 
+@router.get("/api/ai/estimate/{video_id}")
+def estimate_ai_tokens(video_id: int, engine: str = "gemini", model: str = ""):
+    """Estimativa (aproximada) de tokens do envio à IA, antes de enviar (B10)."""
+    from app.ai.tokens import estimate_request
+    from app.config import DATABASE_DIR
+    video = get_video_by_id(video_id)
+    if not video or "data" not in video:
+        raise HTTPException(status_code=404, detail="Dados de transcrição não encontrados")
+    transcript = video["data"].get("raw_transcript_prompt", "")
+    mosaics = list((DATABASE_DIR / "mosaics").glob(f"{video_id}_mosaic*.jpg"))
+    return estimate_request(transcript, engine, model, mosaic_count=len(mosaics))
+
+
 @router.get("/api/claude-prompt/{video_id}")
 def get_claude_prompt(video_id: int):
     video = get_video_by_id(video_id)

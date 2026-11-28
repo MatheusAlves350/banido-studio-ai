@@ -825,3 +825,9 @@ button:disabled { cursor: default; opacity: 0.5; }
 .clip-preview-speech { position: absolute; top: 4px; height: 14px; background: var(--muted); opacity: 0.55; border-radius: 2px; }
 .clip-preview-marker { position: absolute; top: 0; height: 100%; background: var(--accent); }
 .clip-preview-footer { gap: 8px; }
+
+/* Estimativa de tokens (B10): cores semânticas, sem decoração */
+.token-estimate { display: block; margin-top: 6px; }
+.token-estimate.token-ok { color: #2f7d4f; }
+.token-estimate.token-atencao { color: #a56a00; }
+.token-estimate.token-estoura { color: #b3261e; font-weight: 600; }
