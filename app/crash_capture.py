@@ -54,6 +54,12 @@ def crash_files(job_id: int, logs_dir: Path) -> Dict[str, Path]:
     }
 
 
+def has_pending_crash_files(job_id: int, logs_dir: Path) -> bool:
+    """True se ainda existem arquivos brutos da caixa-preta (worker morreu sem passar pelo finally)."""
+    files = crash_files(job_id, logs_dir)
+    return files["crash"].exists() or files["resources"].exists()
+
+
 # ------------------------------------------------------------------ medições simples
 
 def _version(pkg: str) -> str:

@@ -111,3 +111,12 @@ def test_reconcile_registra_a_queda_no_log_do_job(tmp_path, monkeypatch):
     assert "0xC0000409" in resumo
     assert "[QUEDA DO PROCESSO]" in log.read_text(encoding="utf-8")
     assert (tmp_path / "job_20_crash_report.txt").exists()
+
+
+def test_detecta_arquivos_pendentes_de_queda_abrupta(tmp_path):
+    assert cc.has_pending_crash_files(21, tmp_path) is False
+    cc.start(21, tmp_path)
+    time.sleep(0.15)
+    assert cc.has_pending_crash_files(21, tmp_path) is True
+    cc.stop(success=True)
+    assert cc.has_pending_crash_files(21, tmp_path) is False
