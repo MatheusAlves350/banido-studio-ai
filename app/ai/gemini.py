@@ -6,7 +6,8 @@ from typing import Dict, Any, List, Optional, Callable
 
 from app.model_catalog import DEFAULT_GOOGLE_MODEL, get_fallback_models
 from app.ai.base import _start_ai_heartbeat, _is_non_retryable_ai_error
-from app.ai.parsing import parse_ai_json_response
+from app.ai.parsing import parse_ai_json_response, call_with_schema_retry
+from app.ai.schema import get_structure_temperature
 from app.ai.prompt import SYSTEM_PROMPT
 
 def analyze_with_google_gemini_single(
@@ -15,16 +16,19 @@ def analyze_with_google_gemini_single(
     safety_settings,
     model_name: str,
     duration_sec: Optional[float] = None,
-    progress_callback: Optional[Callable[[str, float], None]] = None
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    correction_note: Optional[str] = None
 ) -> Dict[str, Any]:
     from google.genai import types
 
     t0 = time.time()
+    if correction_note:
+        contents = list(contents) + [correction_note]
     cfg = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         response_mime_type="application/json",
         safety_settings=safety_settings,
-        temperature=0.7
+        temperature=get_structure_temperature()
     )
 
     state: Dict[str, Any] = {"json_chars": 0, "think_chars": 0, "last_chunk_t": 0.0}
@@ -136,7 +140,7 @@ def analyze_with_google_gemini_single(
         f"[IA GEMINI] ✅ Stream finalizado de '{model_name}' em {elapsed:.1f}s ({len(raw_text):,} chars JSON{token_info}). Validando JSON...",
         flush=True
     )
-    data = parse_ai_json_response(raw_text, duration_sec=duration_sec)
+    data = parse_ai_json_response(raw_text, duration_sec=duration_sec, strict=True)
     print(
         f"[IA GEMINI] ✅ Análise concluída! "
         f"Jogo: {data.get('main_game')} | Capítulos: {len(data.get('chapters', []))} | "
@@ -194,9 +198,13 @@ def analyze_with_google_gemini(
         progress_callback(f"Enviando transcrição ({est_tokens:,} tokens) para {model_name}...", 0.92)
 
     try:
-        return analyze_with_google_gemini_single(
-            client, contents, safety_settings, model_name,
-            duration_sec=duration_sec, progress_callback=progress_callback
+        return call_with_schema_retry(
+            lambda note: analyze_with_google_gemini_single(
+                client, contents, safety_settings, model_name,
+                duration_sec=duration_sec, progress_callback=progress_callback,
+                correction_note=note
+            ),
+            tag="IA GEMINI"
         )
     except Exception as e:
         print(f"[IA GEMINI] ❌ Falha no modelo '{model_name}': {e}", flush=True)
@@ -209,9 +217,13 @@ def analyze_with_google_gemini(
                 if progress_callback:
                     progress_callback(f"Tentando fallback automático Gemini: {fb}...", 0.92)
                 try:
-                    return analyze_with_google_gemini_single(
-                        client, contents, safety_settings, fb,
-                        duration_sec=duration_sec, progress_callback=progress_callback
+                    return call_with_schema_retry(
+                        lambda note, fb=fb: analyze_with_google_gemini_single(
+                            client, contents, safety_settings, fb,
+                            duration_sec=duration_sec, progress_callback=progress_callback,
+                            correction_note=note
+                        ),
+                        tag="IA GEMINI"
                     )
                 except Exception as fb_err:
                     print(f"[IA GEMINI] ❌ Fallback '{fb}' também falhou: {fb_err}", flush=True)

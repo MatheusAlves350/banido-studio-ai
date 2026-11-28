@@ -5,7 +5,8 @@ from typing import Dict, Any, List, Optional, Callable
 
 from app.model_catalog import DEFAULT_NVIDIA_MODEL, get_fallback_models
 from app.ai.base import _start_ai_heartbeat, _is_non_retryable_ai_error
-from app.ai.parsing import parse_ai_json_response
+from app.ai.parsing import parse_ai_json_response, call_with_schema_retry
+from app.ai.schema import get_structure_temperature, TEMPERATURE_REASONING
 from app.ai.prompt import SYSTEM_PROMPT
 
 def _call_nvidia_single(
@@ -13,9 +14,12 @@ def _call_nvidia_single(
     messages,
     model_name: str,
     duration_sec: Optional[float] = None,
-    progress_callback: Optional[Callable[[str, float], None]] = None
+    progress_callback: Optional[Callable[[str, float], None]] = None,
+    correction_note: Optional[str] = None
 ) -> Dict[str, Any]:
     t0 = time.time()
+    if correction_note:
+        messages = list(messages) + [{"role": "user", "content": correction_note}]
     low = model_name.lower()
     is_reasoning_model = any(k in low for k in ("reasoning", "deepseek-r1", "kimi", "step-5", "nemotron"))
 
@@ -30,7 +34,7 @@ def _call_nvidia_single(
         kwargs: Dict[str, Any] = {
             "model": model_name,
             "messages": messages,
-            "temperature": 0.6 if is_reasoning_model else 0.7,
+            "temperature": TEMPERATURE_REASONING if is_reasoning_model else get_structure_temperature(),
             "max_tokens": 8192 if is_reasoning_model else 4096,
             "stream": use_stream
         }
@@ -115,7 +119,7 @@ def _call_nvidia_single(
         f"[IA NVIDIA] ✅ Stream finalizado de '{model_name}' em {time.time() - t0:.1f}s ({len(text):,} chars). Validando JSON...",
         flush=True
     )
-    data = parse_ai_json_response(text, duration_sec=duration_sec)
+    data = parse_ai_json_response(text, duration_sec=duration_sec, strict=True)
     print(
         f"[IA NVIDIA] ✅ Análise concluída! "
         f"Jogo: {data.get('main_game')} | Capítulos: {len(data.get('chapters', []))} | "
@@ -155,9 +159,13 @@ def analyze_with_nvidia_nim(
     ]
 
     try:
-        return _call_nvidia_single(
-            client, messages, model_name,
-            duration_sec=duration_sec, progress_callback=progress_callback
+        return call_with_schema_retry(
+            lambda note: _call_nvidia_single(
+                client, messages, model_name,
+                duration_sec=duration_sec, progress_callback=progress_callback,
+                correction_note=note
+            ),
+            tag="IA NVIDIA"
         )
     except Exception as e:
         print(f"[IA NVIDIA] ❌ Falha no modelo '{model_name}': {e}", flush=True)
@@ -170,9 +178,13 @@ def analyze_with_nvidia_nim(
                 if progress_callback:
                     progress_callback(f"Tentando fallback automático NVIDIA: {fb}...", 0.92)
                 try:
-                    return _call_nvidia_single(
-                        client, messages, fb,
-                        duration_sec=duration_sec, progress_callback=progress_callback
+                    return call_with_schema_retry(
+                        lambda note, fb=fb: _call_nvidia_single(
+                            client, messages, fb,
+                            duration_sec=duration_sec, progress_callback=progress_callback,
+                            correction_note=note
+                        ),
+                        tag="IA NVIDIA"
                     )
                 except Exception as fb_err:
                     print(f"[IA NVIDIA] ❌ Fallback '{fb}' também falhou: {fb_err}", flush=True)
