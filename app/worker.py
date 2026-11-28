@@ -28,6 +28,7 @@ from app.lossless_media import (
 )
 from app.mosaic_generator import generate_video_mosaic
 from app.ai.validator import probe_video_format
+from app.ai.highlight_check import check_highlights
 from app.transcriber_v3 import run_transcription_pipeline
 from app.voice_bank import list_known_voice_names
 from app.ai_director import (
@@ -468,6 +469,11 @@ def run_worker(
                     ai_data["ai_warning"] = err_txt
         else:
             print("[IA CLAUDE WEB] Pacote de prompt preparado para cópia manual no Claude Web!", flush=True)
+
+        # Confere os destaques contra a fala: encaixa início/fim em frases e descarta trechos sem fala (B2)
+        if engine in ("gemini", "nvidia") and ai_data.get("highlights"):
+            for line in check_highlights(ai_data, duration_sec):
+                print(line, flush=True)
 
         # Refaz descrição e tags já com a resolução/fps confirmados pelo ffprobe (tag "4K 60fps" só vale se confirmada)
         ai_data["youtube_description"] = build_youtube_description(ai_data)
