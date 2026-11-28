@@ -66,7 +66,7 @@ async def csrf_and_token_guard(request: Request, call_next):
         or (path in ("/api/settings", "/api/setup/check") and method == "GET")
         or (path.startswith("/api/models/") and method == "GET")
         # GETs que executam FFmpeg/rede ou gravam/expõem logs locais: também exigem o token
-        or (path.startswith(("/api/audio/preview/", "/api/speakers/preview/", "/api/update/", "/api/diagnostics/", "/api/backup/")) and method == "GET")
+        or (path.startswith(("/api/audio/preview/", "/api/video/preview/", "/api/speakers/preview/", "/api/update/", "/api/diagnostics/", "/api/backup/")) and method == "GET")
     )
     if needs_token:
         provided = request.headers.get("X-Banido-Token", "")

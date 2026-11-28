@@ -16,6 +16,7 @@ from app.database import (
 from app.lossless_media import (
     rename_mkv_and_srt, export_lossless_highlight, embed_chapters_into_mkv
 )
+from app.clip_preview import build_preview_proxy, clamp_window
 from app.voice_bank import (
     extract_highlight_preview_wav
 )
@@ -80,6 +81,26 @@ def preview_highlight_audio(video_id: int, start: float = 0.0, end: float = 15.0
         security.prune_directory(preview_dir)
 
     return FileResponse(str(preview_wav), media_type="audio/wav", filename=preview_wav.name)
+
+
+@router.get("/api/video/preview/{video_id}")
+def preview_clip_video(video_id: int, start: float = 0.0, end: float = 15.0):
+    """C1: prévia leve (360p, até 2 min) do trecho para conferir início e fim antes de exportar."""
+    video = get_video_by_id(video_id, include_data=False)
+    if not video:
+        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
+    mkv_path = Path(video["file_path"])
+    if not mkv_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo MKV não encontrado no disco")
+
+    s, e = clamp_window(start, end, float(video.get("duration_sec") or 0.0))
+    preview_dir = TEMP_DIR / "previews"
+    preview_mp4 = preview_dir / f"clip_v{video_id}_{int(video.get('mtime') or 0)}_{int(s * 10)}_{int(e * 10)}.mp4"
+    if not preview_mp4.exists() or preview_mp4.stat().st_size <= 1000:
+        if not build_preview_proxy(mkv_path, s, e, preview_mp4):
+            raise HTTPException(status_code=500, detail="Não foi possível gerar a prévia do trecho.")
+        security.prune_directory(preview_dir)
+    return FileResponse(str(preview_mp4), media_type="video/mp4", filename=preview_mp4.name)
 
 
 class CutRequest(BaseModel):

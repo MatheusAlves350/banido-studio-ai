@@ -76,6 +76,10 @@ function renderHighlights(videoId, highlights, totalDurationSec = 0) {
 
         tweakRow.appendChild(startGrp);
         tweakRow.appendChild(endGrp);
+        tweakRow.appendChild(mkBtn("Pré-visualizar", () => openClipPreview({
+            videoId, title: clipTitle, startSec, endSec, totalDurationSec,
+            onApply: (s, e) => { startSec = s; endSec = e; updateRangeLabel(); }
+        })));
         card.appendChild(tweakRow);
 
         // Prévia de áudio antes de exportar o corte 4K
@@ -247,4 +251,28 @@ function describeCutVerification(v) {
     if (!v || !v.message) return "";
     const label = { ok: "Verificação: ", warn: "Atenção: ", bad: "Problema: " }[v.status] || "";
     return `\n\n${label}${v.message}`;
+}
+
+// C1: abre a pré-visualização a partir dos campos do corte manual.
+function previewManualCut() {
+    if (!activeVideoId) return;
+    const startInp = document.getElementById("manual-cut-start");
+    const endInp = document.getElementById("manual-cut-end");
+    const startSec = parseTimestampToSeconds((startInp?.value || "").trim());
+    const endSec = parseTimestampToSeconds((endInp?.value || "").trim());
+    if (Number.isNaN(startSec) || Number.isNaN(endSec) || endSec <= startSec) {
+        alert("Informe tempos válidos de Início e Fim (ex: 00:12:30 até 00:13:45) com Fim maior que Início.");
+        return;
+    }
+    const video = allVideos.find(v => v.id === activeVideoId);
+    openClipPreview({
+        videoId: activeVideoId,
+        title: (document.getElementById("manual-cut-title")?.value || "").trim() || "Corte manual",
+        startSec, endSec,
+        totalDurationSec: (video && video.duration_sec) || 0,
+        onApply: (s, e) => {
+            if (startInp) startInp.value = formatSecondsToHHMMSS(s);
+            if (endInp) endInp.value = formatSecondsToHHMMSS(e);
+        }
+    });
 }
