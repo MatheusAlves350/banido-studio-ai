@@ -527,6 +527,8 @@ function renderCompletedVideo(v) {
     renderHighlights(v.id, data.highlights || [], v.duration_sec || 0);
     renderChapters(data.chapters || []);
     renderTopics(data.topics || []);
+    transcriptEdits = v.transcript_edits || {};
+    showGlossarySuggestions([]);
     setupTranscriptExplorer(data.segments || []);
 
     if (typeof refreshMetadataValidation === "function") refreshMetadataValidation(v.id);

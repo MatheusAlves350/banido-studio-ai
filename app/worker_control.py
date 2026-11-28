@@ -13,13 +13,15 @@ from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
 
 from app.config import (
-    PROJECT_ROOT, OBS_RECORDINGS_DIR, LOGS_DIR, VENV_PYTHON, HOST_SPEAKER_NAME
+    PROJECT_ROOT, OBS_RECORDINGS_DIR, TEMP_DIR, LOGS_DIR, VENV_PYTHON, HOST_SPEAKER_NAME
 )
+from app.disk_space import BLOCKED as SPACE_BLOCKED, WARNING as SPACE_WARNING, check_process_space
 from app.database import (
     get_video_by_id, update_video_progress, get_setting, has_video_data, create_job_record,
     set_job_pid, finish_job_record, get_job_by_id, now_str,
     update_video_game_and_context
 )
+from app import crash_capture
 from app.ai_director import (
     DEFAULT_GOOGLE_MODEL, DEFAULT_NVIDIA_MODEL
 )
@@ -200,6 +202,22 @@ def _cleanup_orphan_audio_norm_temps(mkv_path: Optional[Path] = None):
             pass
 
 
+def _record_worker_crash(info: Dict[str, Any], ret: int) -> str:
+    """F1: junta pilha, versões, RAM/VRAM e módulo que falhou; anexa ao log do job e devolve um resumo curto."""
+    try:
+        job_id = info["job_id"]
+        pid = getattr(info.get("proc"), "pid", 0) or 0
+        stage = crash_capture.last_known_stage(job_id, LOGS_DIR)
+        crash = crash_capture.collect_crash_info(job_id, ret, LOGS_DIR, pid=pid, stage=stage)
+        job = get_job_by_id(job_id)
+        if job and job.get("log_file"):
+            with open(job["log_file"], "a", encoding="utf-8") as lf:
+                lf.write(f"\n[{now_str()}] ❌ [QUEDA DO PROCESSO]\n{crash['report_text']}\n")
+        return crash["summary"]
+    except Exception:
+        return ""
+
+
 def reconcile_worker_processes():
     """
     Verifica se algum subprocesso worker terminou e garante que o banco de dados
@@ -213,18 +231,25 @@ def reconcile_worker_processes():
         if ret is not None:
             finished_vids.append(vid)
             _cleanup_boot_log(info, append_to_job_log=(ret != 0))
+            crash_summary = ""
+            # ret == 1 com arquivos brutos ainda no disco = encerramento abrupto (ex.: Gerenciador de Tarefas no Windows)
+            if ret != 0 and (ret != 1 or crash_capture.has_pending_crash_files(job_id, LOGS_DIR)):
+                crash_summary = _record_worker_crash(info, ret)
             if vid == 0:
                 job = get_job_by_id(job_id)
                 if job and job.get("status") == "running":
                     st = "completed" if ret == 0 else "error"
-                    finish_job_record(job_id, status=st, error_detail="" if ret == 0 else f"Lote encerrou (código {ret})")
+                    finish_job_record(
+                        job_id, status=st,
+                        error_detail="" if ret == 0 else f"Lote encerrou ({crash_summary or f'código {ret}'})",
+                    )
                 if ret != 0:
                     _cleanup_orphan_audio_norm_temps()
                 continue
 
             video = get_video_by_id(vid)
             if video and video.get("status") == "processing":
-                err_msg = f"Processo worker encerrou abruptamente (código {ret}). Verifique o log."
+                err_msg = f"Processo worker encerrou abruptamente ({crash_summary or f'código {ret}'}). Verifique o log."
                 if has_video_data(vid):
                     update_video_progress(
                         vid,
@@ -306,6 +331,16 @@ def launch_worker_subprocess(
             "message": f"Este vídeo já está em processamento ativo (Job #{existing['job_id']}, PID {existing['proc'].pid})."
         }
 
+    # F8: confere o espaço em disco antes de começar (a normalização avulsa já faz a própria checagem)
+    space_warning = ""
+    if mode == "full":
+        will_normalize = bool(normalize_audio) and not video.get("audio_normalized")
+        space = check_process_space(video, will_normalize, TEMP_DIR, OBS_RECORDINGS_DIR)
+        if space["level"] == SPACE_BLOCKED:
+            raise HTTPException(status_code=507, detail=space["message"])
+        if space["level"] == SPACE_WARNING:
+            space_warning = space["message"]
+
     # Salvar imediatamente o jogo e o contexto escolhidos no vídeo e no histórico de jogos
     if mode in ("full", "ai_only") and (manual_game.strip() or extra_context.strip()):
         update_video_game_and_context(
@@ -379,5 +414,6 @@ def launch_worker_subprocess(
         "already_running": False,
         "job_id": job_id,
         "pid": proc.pid,
-        "message": f"Processamento iniciado (Job #{job_id}, PID {proc.pid})"
+        "message": f"Processamento iniciado (Job #{job_id}, PID {proc.pid})",
+        "space_warning": space_warning,
     }
