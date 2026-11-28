@@ -1,5 +1,5 @@
 """Rota do relatório de diagnóstico."""
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Response
 from typing import Optional
 
 from app.database import (
@@ -40,4 +40,21 @@ def get_diagnostic_report(
         job=job,
         strip_transcript_lines=strip_transcripts,
         redact_filenames=redact_filenames,
+    )
+
+
+@router.get("/api/diagnostics/package")
+def download_problem_package():
+    """F3: gera o .zip "relatório de problema" (sem chaves, vídeos ou caminhos completos)."""
+    from app.problem_report import ReportBlocked, build_problem_zip
+
+    reconcile_worker_processes()
+    try:
+        data, filename = build_problem_zip()
+    except ReportBlocked as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
